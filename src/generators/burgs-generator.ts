@@ -162,7 +162,7 @@ class BurgModule {
     function getTownsNumber() {
       const manorsInput = ensureEl("manorsInput") as HTMLInputElement;
       const isAuto = manorsInput.value === "1000"; // '1000' is considered as auto
-      if (isAuto) return rn(populatedCells.length / 5 / (grid.points.length / 10000) ** 0.8);
+      if (isAuto) return Math.max(8, rn(populatedCells.length / 10 / (grid.points.length / 10000) ** 0.8));
 
       return Math.min(manorsInput.valueAsNumber, populatedCells.length);
     }
@@ -357,13 +357,14 @@ class BurgModule {
 
   private definePopulation(burg: Burg) {
     const cellId = burg.cell;
-    let population = pack.cells.s[cellId] / 5;
-    if (burg.capital) population *= 1.5;
+    let population = pack.cells.s[cellId] / 35;
+    if (burg.capital) population *= 1.4;
     const connectivityRate = Routes.getConnectivityRate(cellId);
     if (connectivityRate) population *= connectivityRate;
     population *= gauss(1, 1, 0.25, 4, 5); // randomize
     population += (((burg.i as number) % 100) - (cellId % 100)) / 1000; // unround
-    burg.population = rn(Math.max(population, 0.01), 3);
+    const maxPopulation = burg.capital ? 3 : 1.2;
+    burg.population = rn(minmax(Math.max(population, 0.02), 0.02, maxPopulation), 3);
   }
 
   private defineEmblem(burg: Burg) {
@@ -384,13 +385,13 @@ class BurgModule {
 
   private defineFeatures(burg: Burg) {
     const pop = burg.population as number;
-    burg.citadel = Number(burg.capital || (pop > 50 && P(0.75)) || (pop > 15 && P(0.5)) || P(0.1));
-    burg.walls = Number(burg.capital || pop > 30 || (pop > 20 && P(0.75)) || (pop > 10 && P(0.5)) || P(0.1));
-    burg.shanty = Number(pop > 60 || (pop > 40 && P(0.75)) || (pop > 20 && burg.walls && P(0.4)));
+    burg.citadel = Number(burg.capital || (pop > 1.8 && P(0.5)) || P(0.04));
+    burg.walls = Number(burg.capital || pop > 2.2 || (pop > 1.4 && P(0.35)));
+    burg.shanty = Number(pop > 2.5 || (pop > 1.8 && burg.walls && P(0.25)));
     const religion = pack.cells.religion[burg.cell] as number;
     const theocracy = pack.states[burg.state as number].form === "Theocracy";
     burg.temple = Number(
-      (religion && theocracy && P(0.5)) || pop > 50 || (pop > 35 && P(0.75)) || (pop > 20 && P(0.5))
+      (religion && theocracy && P(0.35)) || pop > 2.4 || (pop > 1.6 && P(0.4))
     );
   }
 
@@ -408,7 +409,7 @@ class BurgModule {
         active: true,
         order: 8,
         percentile: 90,
-        min: 5,
+        min: 1,
         preview: "watabou-city"
       },
       {
@@ -416,21 +417,21 @@ class BurgModule {
         active: true,
         features: { citadel: true, walls: false, plaza: false, port: false },
         order: 6,
-        max: 1
+        max: 0.4
       },
       {
         name: "monastery",
         active: true,
         features: { temple: true, walls: false, plaza: false, port: false },
         order: 5,
-        max: 0.8
+        max: 0.4
       },
       {
         name: "caravanserai",
         active: true,
         features: { port: false, plaza: true },
         order: 4,
-        max: 0.8,
+        max: 0.4,
         biomes: [1, 2, 3]
       },
       {
@@ -438,15 +439,15 @@ class BurgModule {
         active: true,
         order: 3,
         features: { plaza: true },
-        max: 0.8,
+        max: 0.4,
         biomes: [5, 6, 7, 8, 9, 10, 11, 12]
       },
       {
         name: "village",
         active: true,
         order: 2,
-        min: 0.1,
-        max: 2,
+        min: 0.08,
+        max: 0.8,
         preview: "watabou-village"
       },
       {
@@ -454,7 +455,7 @@ class BurgModule {
         active: true,
         order: 1,
         features: { plaza: false },
-        max: 0.1,
+        max: 0.08,
         preview: "watabou-village"
       },
       {

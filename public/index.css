@@ -2608,3 +2608,96 @@ body.tour-free-roam * {
 #startTourButton:hover {
   background-color: #4a4a6c;
 }
+
+/* Next launcher theme: keep the original controls, tune them toward the concept panel. */
+#options {
+  right: 1.4em;
+  top: 4.7em;
+  width: min(390px, calc(100vw - 2.8em));
+  max-height: calc(100vh - 6em);
+  overflow: auto;
+  border: 1px solid rgba(104, 201, 198, 0.22);
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgba(28, 38, 41, 0.96), rgba(15, 23, 25, 0.96));
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.34);
+  color: #eff6f2;
+}
+
+#options .drag-trigger,
+#options .tab {
+  border-color: rgba(104, 201, 198, 0.18);
+}
+
+button.options {
+  border: 1px solid rgba(104, 201, 198, 0.28);
+  background-color: rgba(34, 53, 57, 0.96);
+  color: #f5fffb;
+}
+
+button.active,
+button.options:hover {
+  background-color: rgba(64, 133, 135, 0.96);
+  color: #ffffff;
+}
+
+#options p,
+#optionsContent span,
+#options .tip,
+#options i {
+  color: #dce8e4;
+}
+
+#options input,
+#options select,
+#options textarea {
+  border: 1px solid rgba(104, 201, 198, 0.36);
+  border-radius: 5px;
+  background-color: rgba(238, 246, 239, 0.95);
+  color: #102325;
+}
+
+#options button:not(.options) {
+  border: 1px solid rgba(104, 201, 198, 0.28);
+  border-radius: 5px;
+  background-color: rgba(34, 53, 57, 0.96);
+  color: #f5fffb;
+}
+
+#options button:not(.options):hover {
+  background-color: rgba(64, 133, 135, 0.96);
+  color: #ffffff;
+}
+
+#options input::placeholder,
+#options textarea::placeholder {
+  color: #4f6363;
+}
+
+#options select option {
+  background-color: #eef6ef;
+  color: #102325;
+}
+
+#options output {
+  color: #ffffff;
+}
+
+#options input[type="range"]::-webkit-slider-thumb {
+  border-color: rgba(244, 247, 243, 0.8);
+  border-radius: 50%;
+  background: #68c9c6;
+  box-shadow: none;
+}
+
+#options input[type="range"]::-moz-range-thumb {
+  border-color: rgba(244, 247, 243, 0.8);
+  border-radius: 50%;
+  background: #68c9c6;
+  box-shadow: none;
+}
+
+#options input[type="range"]::-webkit-slider-runnable-track,
+#options input[type="range"]::-moz-range-track {
+  height: 3px;
+  background: rgba(104, 201, 198, 0.42);
+}

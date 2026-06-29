@@ -79,6 +79,44 @@ export async function exportToPng(): Promise<void> {
   }
 }
 
+export async function exportGameMapImages(): Promise<void> {
+  TIME && console.time("exportGameMapImages");
+  try {
+    await loadScript("libs/jszip.min.js");
+    const zip = new window.JSZip();
+    const baseName = getFileName("game-map");
+    const [svgBlob, pngBlob] = await Promise.all([getSvgBlob(), getPngBlob(true)]);
+
+    zip.file(`${baseName}.svg`, svgBlob);
+    zip.file(`${baseName}.png`, pngBlob);
+
+    const archive = await zip.generateAsync({ type: "blob" });
+    downloadBlob(archive, `${baseName}-images.zip`);
+    tip(`${baseName}-images.zip is saved. It contains the SVG and PNG map renders`, true, "success", 7000);
+  } catch (error) {
+    ERROR && console.error(error);
+    tip(`Game map image export failed: ${(error as Error)?.message || "Unknown error"}`, true, "error", 5000);
+  } finally {
+    TIME && console.timeEnd("exportGameMapImages");
+  }
+}
+
+export function exportGameTopologyJson(): void {
+  if (customization) {
+    tip("Game data cannot be exported when edit mode is active, please exit the mode and retry", false, "error");
+    return;
+  }
+
+  const json = JSON.stringify(getGameTopologyData());
+  downloadFile(json, `${getFileName("game-topology")}.json`, "application/json");
+  tip("Game topology JSON is saved", true, "success", 7000);
+}
+
+export async function exportGameMapFiles(): Promise<void> {
+  await exportGameMapImages();
+  exportGameTopologyJson();
+}
+
 export async function exportToJpeg(): Promise<void> {
   TIME && console.time("exportToJpeg");
   try {
@@ -119,6 +157,275 @@ export async function exportToJpeg(): Promise<void> {
   } finally {
     TIME && console.timeEnd("exportToJpeg");
   }
+}
+
+async function getSvgBlob(): Promise<Blob> {
+  const url = await getMapURL("svg", { fullMap: true });
+  const response = await fetch(url);
+  return response.blob();
+}
+
+async function getPngBlob(fullMap = false): Promise<Blob> {
+  const url = await getMapURL("png", { fullMap });
+  const resolution = ensureEl<HTMLInputElement>("pngResolutionInput")?.valueAsNumber || 1;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d")!;
+  const width = fullMap ? graphWidth : svgWidth;
+  const height = fullMap ? graphHeight : svgHeight;
+  canvas.width = width * resolution;
+  canvas.height = height * resolution;
+
+  const img = new Image();
+  img.src = url;
+  await loadImageElement(img);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const blob = await canvasToBlob(canvas, "image/png");
+  canvas.remove();
+  return blob;
+}
+
+function downloadBlob(blob: Blob, fileName: string): void {
+  const link = document.createElement("a");
+  link.href = window.URL.createObjectURL(blob);
+  link.download = fileName;
+  link.click();
+  window.setTimeout(() => window.URL.revokeObjectURL(link.href), 5000);
+}
+
+function loadImageElement(img: HTMLImageElement): Promise<void> {
+  return new Promise((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("Cannot load map image"));
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, qualityArgument = 1): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      blob => {
+        if (blob) resolve(blob);
+        else reject(new Error("Canvas toBlob() error"));
+      },
+      mimeType,
+      qualityArgument
+    );
+  });
+}
+
+function getGameTopologyData() {
+  const peoplePerPoint = populationRate * urbanization;
+  const landCells = Array.from(pack.cells.i)
+    .filter(cellId => pack.cells.h[cellId] >= 20)
+    .map(cellId => ({
+      id: cellId,
+      coordinate: roundPoint(pack.cells.p[cellId]),
+      geo_coordinate: toGeoCoordinates(...pack.cells.p[cellId]),
+      elevation: pack.cells.h[cellId],
+      area: pack.cells.area[cellId],
+      feature: pack.cells.f[cellId],
+      biome: pack.cells.biome[cellId],
+      culture: pack.cells.culture[cellId],
+      state: pack.cells.state[cellId],
+      province: pack.cells.province[cellId],
+      religion: pack.cells.religion[cellId],
+      population_points: rn(Number(pack.cells.pop[cellId]), 3),
+      burg: pack.cells.burg[cellId] || 0,
+      neighbors: pack.cells.c[cellId]
+    }));
+
+  return {
+    metadata: {
+      schema: "fmg-game-topology",
+      schema_version: 1,
+      source: "Azgaar Fantasy Map Generator game implementation fork",
+      exported_at: new Date().toISOString(),
+      map_name: mapName.value,
+      seed,
+      map_id: mapId,
+      width: graphWidth,
+      height: graphHeight,
+      profile: {
+        purpose: "voxel-mmorpg-test",
+        default_cells: Number(pointsInput.dataset.cells),
+        default_people_per_population_point: populationRate,
+        default_urbanization: urbanization,
+        target_town_population: 100,
+        max_standard_town_population: 120,
+        max_capital_population: 300,
+        street_bias: "horizontal-main"
+      }
+    },
+    world_environment: {
+      map_coordinates: mapCoordinates,
+      land_matrix_nodes: landCells,
+      features: pack.features,
+      routes: pack.routes.map(route => ({
+        id: route.i,
+        group: route.group,
+        feature: route.feature,
+        points: route.points?.map(point => roundPoint([point[0], point[1]]))
+      }))
+    },
+    political_context: {
+      states: pack.states,
+      cultures: pack.cultures,
+      religions: pack.religions,
+      provinces: pack.provinces
+    },
+    burgs: pack.burgs.filter(burg => burg.i && !burg.removed).map(burg => createGameBurgNode(burg, peoplePerPoint))
+  };
+}
+
+function createGameBurgNode(burg: (typeof pack.burgs)[number], peoplePerPoint: number) {
+  const population = getGamePopulation(burg, peoplePerPoint);
+  const layout = createBurgLayout(burg, population);
+
+  return {
+    id: burg.i,
+    name: burg.name,
+    group: burg.group,
+    state: burg.state,
+    culture: burg.culture,
+    feature: burg.feature,
+    cell: burg.cell,
+    coordinate_center: roundPoint([burg.x, burg.y]),
+    geo_coordinate: toGeoCoordinates(burg.x, burg.y),
+    population,
+    original_population_points: rn(Number(burg.population || 0), 3),
+    infrastructure: {
+      main_street_orientation: "horizontal",
+      arterial_roads: layout.arterial_roads,
+      secondary_roads: layout.secondary_roads,
+      defensive_wall_boundary: layout.defensive_wall_boundary,
+      buildings: layout.buildings
+    },
+    flags: {
+      capital: Boolean(burg.capital),
+      port: Boolean(burg.port),
+      citadel: Boolean(burg.citadel),
+      plaza: Boolean(burg.plaza),
+      walls: Boolean(layout.defensive_wall_boundary.length),
+      temple: Boolean(burg.temple)
+    }
+  };
+}
+
+function getGamePopulation(burg: (typeof pack.burgs)[number], peoplePerPoint: number): number {
+  const raw = Math.round(Number(burg.population || 0) * peoplePerPoint);
+  const max = burg.capital ? 300 : 120;
+  return Math.max(20, Math.min(max, raw));
+}
+
+function createBurgLayout(burg: (typeof pack.burgs)[number], population: number) {
+  const rand = createSeededRandom(`${seed}:${burg.i}:voxel-city`);
+  const isCapital = Boolean(burg.capital);
+  const buildingCount = Math.max(3, Math.min(isCapital ? 30 : 12, Math.ceil(population / 10)));
+  const radius = Math.max(8, Math.min(28, 6 + Math.sqrt(buildingCount) * (isCapital ? 3.2 : 2.2)));
+  const center: [number, number] = [burg.x, burg.y];
+  const arterialRoads = [
+    {
+      id: `${burg.i}-main-west-east`,
+      type: "arterial",
+      orientation: "horizontal",
+      points: [
+        roundPoint([center[0] - radius, center[1]]),
+        roundPoint([center[0] + radius, center[1]])
+      ]
+    }
+  ];
+  const secondaryRoads = [];
+  if (buildingCount > 5) {
+    secondaryRoads.push({
+      id: `${burg.i}-secondary-north-south`,
+      type: "secondary",
+      orientation: "vertical",
+      points: [
+        roundPoint([center[0], center[1] - radius * 0.55]),
+        roundPoint([center[0], center[1] + radius * 0.55])
+      ]
+    });
+  }
+  if (buildingCount > 12) {
+    secondaryRoads.push({
+      id: `${burg.i}-secondary-inner-east`,
+      type: "secondary",
+      orientation: "horizontal",
+      points: [
+        roundPoint([center[0] - radius * 0.45, center[1] + radius * 0.35]),
+        roundPoint([center[0] + radius * 0.45, center[1] + radius * 0.35])
+      ]
+    });
+  }
+
+  const wallRadiusX = radius * 1.12;
+  const wallRadiusY = radius * 0.82;
+  const defensiveWall = burg.walls || burg.capital || population > 180 ? getWallBoundary(center, wallRadiusX, wallRadiusY) : [];
+
+  return {
+    arterial_roads: arterialRoads,
+    secondary_roads: secondaryRoads,
+    defensive_wall_boundary: defensiveWall,
+    buildings: createBuildingFootprints(burg.i, center, buildingCount, radius, rand)
+  };
+}
+
+function createBuildingFootprints(
+  burgId: number,
+  center: [number, number],
+  count: number,
+  radius: number,
+  rand: () => number
+) {
+  const districts = ["residential", "residential", "craft", "market", "civic", "temple"];
+  return Array.from({ length: count }, (_, index) => {
+    const row = index % 2 === 0 ? -1 : 1;
+    const lane = Math.floor(index / 2);
+    const maxLane = Math.max(1, Math.ceil(count / 2) - 1);
+    const xOffset = maxLane ? (lane / maxLane - 0.5) * radius * 1.55 : 0;
+    const yOffset = row * (3.6 + rand() * 3.6);
+    const width = rn(3 + rand() * 3.5, 1);
+    const length = rn(3.5 + rand() * 4.5, 1);
+    const district = districts[Math.floor(rand() * districts.length)];
+    const stories = district === "civic" || district === "temple" ? 2 : rand() > 0.82 ? 2 : 1;
+
+    return {
+      id: `${burgId}-building-${String(index + 1).padStart(3, "0")}`,
+      coordinate_center: roundPoint([center[0] + xOffset, center[1] + yOffset]),
+      width,
+      length,
+      height_stories: stories,
+      district_type: district
+    };
+  });
+}
+
+function getWallBoundary(center: [number, number], radiusX: number, radiusY: number) {
+  return [
+    roundPoint([center[0] - radiusX, center[1] - radiusY]),
+    roundPoint([center[0] + radiusX, center[1] - radiusY]),
+    roundPoint([center[0] + radiusX, center[1] + radiusY]),
+    roundPoint([center[0] - radiusX, center[1] + radiusY]),
+    roundPoint([center[0] - radiusX, center[1] - radiusY])
+  ];
+}
+
+function createSeededRandom(value: string): () => number {
+  let state = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    state ^= value.charCodeAt(i);
+    state = Math.imul(state, 16777619);
+  }
+  return () => {
+    state += 0x6d2b79f5;
+    let next = state;
+    next = Math.imul(next ^ (next >>> 15), next | 1);
+    next ^= next + Math.imul(next ^ (next >>> 7), next | 61);
+    return ((next ^ (next >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function roundPoint(point: [number, number]): [number, number] {
+  return [rn(point[0], 2), rn(point[1], 2)];
 }
 
 export async function exportToPngTiles(): Promise<void> {

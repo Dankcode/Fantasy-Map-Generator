@@ -599,13 +599,13 @@ function randomizeOptions() {
   const randomize = new URL(window.location.href).searchParams.get("options") === "default"; // ignore stored options
 
   // 'Options' settings
-  if (randomize || !locked("points")) changeCellsDensity(4); // reset to default, no need to randomize
+  if (randomize || !locked("points")) changeCellsDensity(1); // reset to game profile default, no need to randomize
   if (randomize || !locked("template")) randomizeHeightmapTemplate();
-  if (randomize || !locked("statesNumber")) statesNumber.value = gauss(18, 5, 2, 30);
+  if (randomize || !locked("statesNumber")) statesNumber.value = gauss(4, 1, 2, 6);
   if (randomize || !locked("provincesRatio")) provincesRatio.value = gauss(20, 10, 20, 100);
   if (randomize || !locked("manors")) {
-    manorsInput.value = 1000;
-    manorsOutput.value = "auto";
+    manorsInput.value = 24;
+    manorsOutput.value = "24";
   }
   if (randomize || !locked("religionsNumber")) religionsNumber.value = gauss(6, 3, 2, 10);
   if (randomize || !locked("sizeVariety")) sizeVariety.value = gauss(4, 2, 0, 10, 1);

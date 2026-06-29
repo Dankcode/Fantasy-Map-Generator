@@ -1560,9 +1560,9 @@
               </td>
               <td>Canvas size</td>
               <td>
-                <input id="mapWidthInput" class="paired" type="number" min="240" value="960" />
+                <input id="mapWidthInput" class="paired" type="number" min="240" value="640" />
                 <span>x</span>
-                <input id="mapHeightInput" class="paired" type="number" min="135" value="540" />
+                <input id="mapHeightInput" class="paired" type="number" min="135" value="360" />
                 <span>px</span>
               </td>
               <td></td>
@@ -1603,12 +1603,12 @@
                   type="range"
                   min="1"
                   max="13"
-                  value="4"
-                  data-cells="10000"
+                  value="1"
+                  data-cells="1000"
                 />
               </td>
               <td>
-                <output id="pointsOutputFormatted" style="color: #053305">10K</output>
+                <output id="pointsOutputFormatted" style="color: #dfdf12">1K</output>
               </td>
             </tr>
             <tr data-tip="Define map name (will be used to name downloaded files)">
@@ -1705,7 +1705,7 @@
               </td>
               <td>States number</td>
               <td colspan="2">
-                <slider-input id="statesNumber" data-stored="statesNumber" min="0" max="100"></slider-input>
+                <slider-input id="statesNumber" data-stored="statesNumber" min="0" max="100" value="4"></slider-input>
               </td>
             </tr>
             <tr
@@ -1743,10 +1743,10 @@
               </td>
               <td>Burgs number</td>
               <td>
-                <input id="manorsInput" data-stored="manors" type="range" min="0" max="1000" step="1" value="1000" />
+                <input id="manorsInput" data-stored="manors" type="range" min="0" max="1000" step="1" value="24" />
               </td>
               <td>
-                <output id="manorsOutput" data-stored="manors" value="auto"></output>
+                <output id="manorsOutput" data-stored="manors" value="24">24</output>
               </td>
             </tr>
             <tr
@@ -5345,7 +5345,7 @@
               min="10"
               max="10000"
               step="10"
-              value="1000"
+              value="100"
             >
               <label>1 population point:</label>
             </slider-input>
@@ -5356,7 +5356,7 @@
             </slider-input>
           </div>
           <div data-tip="Set urban density: average population per building in Medieval Fantasy City Generator">
-            <slider-input id="urbanDensityInput" data-stored="urbanDensity" min="1" max="200" step="1" value="10">
+            <slider-input id="urbanDensityInput" data-stored="urbanDensity" min="1" max="200" step="1" value="20">
               <label>Urban density:</label>
             </slider-input>
           </div>
@@ -6156,7 +6156,23 @@
       </div>
       <div id="preview3d" class="dialog stable" style="display: none; padding: 0px"></div>
       <div id="exportMapData" style="display: none" class="dialog">
-        <div style="margin-bottom: 0.3em; font-weight: bold">Download image</div>
+        <div style="margin-bottom: 0.3em; font-weight: bold">Game export</div>
+        <div>
+          <button
+            onclick="window.lazy.exportMap().then(m => m.exportGameMapFiles())"
+            data-tip="Download two files: a ZIP with SVG and PNG map renders, plus game topology JSON"
+          >
+            map images + JSON
+          </button>
+          <button
+            onclick="window.lazy.exportMap().then(m => m.exportGameTopologyJson())"
+            data-tip="Download voxel-ready JSON with land matrix, burgs, roads, walls, and buildings"
+          >
+            game JSON
+          </button>
+        </div>
+        <p>Game export downloads a map image bundle and a lightweight topology JSON for voxel reconstruction.</p>
+        <div style="margin: 1em 0 0.3em; font-weight: bold">Advanced image export</div>
         <div>
           <button
             onclick="window.lazy.exportMap().then(m => m.exportToSvg())"

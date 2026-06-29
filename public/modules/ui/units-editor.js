@@ -111,9 +111,9 @@ function editUnits() {
     renderScaleBar();
 
     // population
-    populationRate = populationRateInput.value = 1000;
+    populationRate = populationRateInput.value = 100;
     urbanization = urbanizationInput.value = 1;
-    urbanDensity = urbanDensityInput.value = 10;
+    urbanDensity = urbanDensityInput.value = 20;
     localStorage.removeItem("populationRate");
     localStorage.removeItem("urbanization");
     localStorage.removeItem("urbanDensity");
