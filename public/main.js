@@ -366,6 +366,7 @@ async function generateMapOnLoad() {
   await generate(); // generate map
   applyLayersPreset(); // apply saved layers preset and reder layers
   drawLayers();
+  await rememberGeneratedMap();
   fitMapToScreen();
   focusOn(); // based on searchParams focus on point, cell or burg from MFCG
   toggleAssistant();
@@ -654,14 +655,14 @@ void (function addDragToUpload() {
 async function generate(options) {
   try {
     const timeStart = performance.now();
-    const { seed: precreatedSeed, graph: precreatedGraph } = options || {};
+    const { seed: precreatedSeed, graph: precreatedGraph, preserveOptions } = options || {};
 
     invokeActiveZooming();
     setSeed(precreatedSeed);
     INFO && console.group("Generated Map " + seed);
 
     applyGraphSize();
-    randomizeOptions();
+    if (!preserveOptions) randomizeOptions();
 
     if (shouldRegenerateGrid(grid, precreatedSeed)) grid = precreatedGraph || generateGrid();
     else delete grid.cells.h;
@@ -673,7 +674,7 @@ async function generate(options) {
     openNearSeaLakes();
 
     OceanLayers();
-    defineMapSize();
+    defineMapSize({ preserveOptions });
     calculateMapCoordinates();
     calculateTemperatures();
     generatePrecipitation();
@@ -870,12 +871,12 @@ function openNearSeaLakes() {
 }
 
 // define map size and position based on template and random factor
-function defineMapSize() {
+function defineMapSize({ preserveOptions } = {}) {
   const [size, latitude, longitude] = getSizeAndLatitude();
   const randomize = new URL(window.location.href).searchParams.get("options") === "default"; // ignore stored options
-  if (randomize || !locked("mapSize")) mapSizeOutput.value = mapSizeInput.value = size;
-  if (randomize || !locked("latitude")) latitudeOutput.value = latitudeInput.value = latitude;
-  if (randomize || !locked("longitude")) longitudeOutput.value = longitudeInput.value = longitude;
+  if (!preserveOptions && (randomize || !locked("mapSize"))) mapSizeOutput.value = mapSizeInput.value = size;
+  if (!preserveOptions && (randomize || !locked("latitude"))) latitudeOutput.value = latitudeInput.value = latitude;
+  if (!preserveOptions && (randomize || !locked("longitude"))) longitudeOutput.value = longitudeInput.value = longitude;
 
   function getSizeAndLatitude() {
     const template = ensureEl("templateInput").value; // heightmap template
@@ -1319,6 +1320,7 @@ const regenerateMap = debounce(async function (options) {
   undraw();
   await generate(options);
   drawLayers();
+  await rememberGeneratedMap();
   if (ThreeD.options.isOn) ThreeD.redraw();
   if ($("#worldConfigurator").is(":visible")) editWorld();
 
@@ -1326,6 +1328,17 @@ const regenerateMap = debounce(async function (options) {
   shouldShowLoading && hideLoading();
   clearMainTip();
 }, 250);
+
+async function rememberGeneratedMap() {
+  if (customization) return;
+
+  try {
+    const { prepareMapData, saveToStorage } = await window.lazy.save();
+    await saveToStorage(prepareMapData());
+  } catch (error) {
+    ERROR && console.error("Cannot remember generated map", error);
+  }
+}
 
 // clear the map
 function undraw() {

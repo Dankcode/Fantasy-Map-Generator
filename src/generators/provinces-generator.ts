@@ -89,7 +89,9 @@ class ProvinceModule {
       });
     }
 
-    const provincesRatio = (ensureEl("provincesRatio") as HTMLInputElement).valueAsNumber;
+    const provincesRatioInput = ensureEl("provincesRatio") as HTMLInputElement;
+    const provincesRatioNumber = provincesRatioInput.querySelector<HTMLInputElement>("input[type=number]");
+    const provincesRatio = provincesRatioInput.valueAsNumber || provincesRatioNumber?.valueAsNumber || 0;
     const maxGrowth = provincesRatio === 100 ? 1000 : gauss(20, 5, 5, 100) * provincesRatio ** 0.5; // max growth
 
     // generate provinces for selected burgs

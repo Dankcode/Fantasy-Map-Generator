@@ -1,0 +1,1505 @@
+type Direction = "north" | "east" | "south" | "west";
+
+type TileType =
+  | "WATER_DEEP"
+  | "WATER_SHALLOW"
+  | "GRASS"
+  | "SAND"
+  | "DIRT"
+  | "MUD"
+  | "SNOW"
+  | "ICE"
+  | "ASH"
+  | "LAVA"
+  | "ROCK_GROUND"
+  | "CRYSTAL_FLOOR"
+  | "ROAD_MAIN"
+  | "ROAD_DIRT"
+  | "BRIDGE"
+  | "BUILDING_FLOOR"
+  | "WALL"
+  | "EMPTY"
+  | "DOCK"
+  | "FARM";
+
+type BuildingType =
+  | "HOUSE_SMALL"
+  | "HOUSE_LARGE"
+  | "TAVERN"
+  | "BLACKSMITH"
+  | "MARKET_STALL"
+  | "CHURCH"
+  | "TOWER"
+  | "MANOR"
+  | "FARM_HOUSE";
+
+type DoodadType =
+  | "TREE_OAK"
+  | "TREE_PINE"
+  | "TREE_PALM"
+  | "TREE_DEAD"
+  | "BUSH"
+  | "ROCK"
+  | "WELL"
+  | "CRATE"
+  | "CACTUS"
+  | "MUSHROOM"
+  | "CRYSTAL"
+  | "STUMP"
+  | "CROP_WHEAT"
+  | "CROP_CORN"
+  | "CROP_PUMPKIN"
+  | "STREET_LAMP"
+  | "TOMBSTONE";
+
+type BiomeType =
+  | "PLAINS"
+  | "FOREST"
+  | "DESERT"
+  | "TUNDRA"
+  | "TAIGA"
+  | "SWAMP"
+  | "JUNGLE"
+  | "SAVANNA"
+  | "BADLANDS"
+  | "MOUNTAIN"
+  | "VOLCANIC"
+  | "OASIS"
+  | "COASTAL"
+  | "MUSHROOM_FOREST"
+  | "CRYSTAL_WASTES"
+  | "AUTUMN_FOREST"
+  | "CHERRY_BLOSSOM"
+  | "GLACIER"
+  | "DEAD_LANDS"
+  | "HIGHLANDS";
+
+type TownDensity = "VERY_SPARSE" | "SPARSE" | "MEDIUM" | "HIGH" | "EXTREME";
+type RoofStyle = "THATCHED" | "TILED" | "SLATE" | "METAL";
+type WallTexture = "TIMBER_FRAME" | "STONE" | "STUCCO" | "WOOD";
+
+interface Tile {
+  x: number;
+  y: number;
+  type: TileType;
+  variation: number;
+  elevation: number;
+  roadConnections?: number;
+  buildingId?: string;
+  doodad?: {
+    type: DoodadType;
+    id: string;
+    offsetX: number;
+    offsetY: number;
+  };
+}
+
+interface Building {
+  id: string;
+  type: BuildingType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  doorX: number;
+  doorY: number;
+  color: string;
+  roofColor: string;
+  roofStyle: RoofStyle;
+  wallTexture: WallTexture;
+}
+
+interface BiomeConfig {
+  ground: TileType;
+  beach: TileType;
+  waterDeep: TileType;
+  waterShallow: TileType;
+  treeDensity: number;
+  rockDensity: number;
+  trees: DoodadType[];
+  secondaryDoodads: DoodadType[];
+  elevationOffset: number;
+}
+
+interface TownMap {
+  width: number;
+  height: number;
+  tiles: Tile[][];
+  buildings: Building[];
+  seed: number;
+  biome: BiomeType;
+  density: TownDensity;
+  connections: Record<Direction, boolean>;
+}
+
+export interface VibeGameTownOptions {
+  burgId: number;
+  name: string | undefined;
+  seed: string;
+  center: [number, number];
+  population: number;
+  biomeName?: string;
+  capital: boolean;
+  port: boolean;
+  walls: boolean;
+  temple: boolean;
+  plaza: boolean;
+  connections?: Partial<Record<Direction, boolean>>;
+}
+
+export interface VibeGameTownLayout {
+  source: string;
+  seed: number;
+  name: string | undefined;
+  biome: BiomeType;
+  density: TownDensity;
+  grid: {
+    width: number;
+    height: number;
+    tile_size_map_units: number;
+    origin: [number, number];
+    center: [number, number];
+  };
+  connections: Record<Direction, boolean>;
+  tiles: VibeGameTownTile[];
+  streets: VibeGameTownStreetTile[];
+  buildings: VibeGameTownBuilding[];
+  walls: VibeGameTownTile[];
+  farms: VibeGameTownTile[];
+  doodads: VibeGameTownDoodad[];
+}
+
+interface VibeGameTownTile {
+  x: number;
+  y: number;
+  type: TileType;
+  elevation: number;
+  variation: number;
+  coordinate_center: [number, number];
+  road_connections?: number;
+  building_id?: string;
+  doodad_id?: string;
+}
+
+interface VibeGameTownStreetTile extends VibeGameTownTile {
+  kind: "main" | "dirt" | "bridge" | "dock";
+  neighbors: [number, number][];
+}
+
+interface VibeGameTownBuilding {
+  id: string;
+  type: BuildingType;
+  grid_rect: { x: number; y: number; width: number; height: number };
+  coordinate_center: [number, number];
+  footprint: [number, number][];
+  door: {
+    grid: [number, number];
+    coordinate: [number, number];
+  };
+  color: string;
+  roof_color: string;
+  roof_style: RoofStyle;
+  wall_texture: WallTexture;
+}
+
+interface VibeGameTownDoodad {
+  id: string;
+  type: DoodadType;
+  grid: [number, number];
+  coordinate: [number, number];
+  offset: [number, number];
+}
+
+const WIDTH = 80;
+const HEIGHT = 60;
+
+const BIOME_DATA: Record<BiomeType, BiomeConfig> = {
+  PLAINS: {
+    ground: "GRASS",
+    beach: "SAND",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.4,
+    rockDensity: 0.01,
+    trees: ["TREE_OAK"],
+    secondaryDoodads: ["BUSH"],
+    elevationOffset: 0
+  },
+  FOREST: {
+    ground: "GRASS",
+    beach: "SAND",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.3,
+    rockDensity: 0.02,
+    trees: ["TREE_OAK", "TREE_PINE"],
+    secondaryDoodads: ["BUSH", "STUMP"],
+    elevationOffset: 0
+  },
+  DESERT: {
+    ground: "SAND",
+    beach: "SAND",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.95,
+    rockDensity: 0.05,
+    trees: ["CACTUS"],
+    secondaryDoodads: ["ROCK"],
+    elevationOffset: 0.05
+  },
+  TUNDRA: {
+    ground: "SNOW",
+    beach: "DIRT",
+    waterDeep: "ICE",
+    waterShallow: "ICE",
+    treeDensity: 0.7,
+    rockDensity: 0.03,
+    trees: ["TREE_PINE"],
+    secondaryDoodads: ["ROCK"],
+    elevationOffset: 0
+  },
+  TAIGA: {
+    ground: "SNOW",
+    beach: "DIRT",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "ICE",
+    treeDensity: 0.25,
+    rockDensity: 0.03,
+    trees: ["TREE_PINE"],
+    secondaryDoodads: ["STUMP"],
+    elevationOffset: 0.1
+  },
+  SWAMP: {
+    ground: "MUD",
+    beach: "MUD",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.3,
+    rockDensity: 0.02,
+    trees: ["TREE_OAK"],
+    secondaryDoodads: ["BUSH"],
+    elevationOffset: -0.15
+  },
+  JUNGLE: {
+    ground: "GRASS",
+    beach: "MUD",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.2,
+    rockDensity: 0.04,
+    trees: ["TREE_PALM", "TREE_OAK"],
+    secondaryDoodads: ["BUSH"],
+    elevationOffset: 0
+  },
+  SAVANNA: {
+    ground: "GRASS",
+    beach: "DIRT",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.7,
+    rockDensity: 0.05,
+    trees: ["TREE_OAK"],
+    secondaryDoodads: ["ROCK"],
+    elevationOffset: 0.05
+  },
+  BADLANDS: {
+    ground: "DIRT",
+    beach: "SAND",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.95,
+    rockDensity: 0.15,
+    trees: ["TREE_DEAD"],
+    secondaryDoodads: ["ROCK", "CACTUS"],
+    elevationOffset: 0.1
+  },
+  MOUNTAIN: {
+    ground: "ROCK_GROUND",
+    beach: "DIRT",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.6,
+    rockDensity: 0.2,
+    trees: ["TREE_PINE"],
+    secondaryDoodads: ["ROCK"],
+    elevationOffset: 0.2
+  },
+  VOLCANIC: {
+    ground: "ASH",
+    beach: "ROCK_GROUND",
+    waterDeep: "LAVA",
+    waterShallow: "LAVA",
+    treeDensity: 0.9,
+    rockDensity: 0.3,
+    trees: ["TREE_DEAD"],
+    secondaryDoodads: ["ROCK"],
+    elevationOffset: 0.1
+  },
+  OASIS: {
+    ground: "SAND",
+    beach: "GRASS",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.8,
+    rockDensity: 0.02,
+    trees: ["TREE_PALM"],
+    secondaryDoodads: ["BUSH"],
+    elevationOffset: -0.1
+  },
+  COASTAL: {
+    ground: "SAND",
+    beach: "SAND",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.6,
+    rockDensity: 0.05,
+    trees: ["TREE_PALM"],
+    secondaryDoodads: ["ROCK"],
+    elevationOffset: -0.15
+  },
+  MUSHROOM_FOREST: {
+    ground: "MUD",
+    beach: "DIRT",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.4,
+    rockDensity: 0.05,
+    trees: ["MUSHROOM"],
+    secondaryDoodads: ["CRYSTAL"],
+    elevationOffset: 0
+  },
+  CRYSTAL_WASTES: {
+    ground: "CRYSTAL_FLOOR",
+    beach: "ROCK_GROUND",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "ICE",
+    treeDensity: 0.8,
+    rockDensity: 0.3,
+    trees: ["CRYSTAL"],
+    secondaryDoodads: ["ROCK"],
+    elevationOffset: 0
+  },
+  AUTUMN_FOREST: {
+    ground: "GRASS",
+    beach: "DIRT",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.3,
+    rockDensity: 0.02,
+    trees: ["TREE_OAK"],
+    secondaryDoodads: ["STUMP"],
+    elevationOffset: 0
+  },
+  CHERRY_BLOSSOM: {
+    ground: "GRASS",
+    beach: "SAND",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.35,
+    rockDensity: 0.02,
+    trees: ["TREE_OAK"],
+    secondaryDoodads: ["BUSH"],
+    elevationOffset: 0
+  },
+  GLACIER: {
+    ground: "SNOW",
+    beach: "ICE",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "ICE",
+    treeDensity: 0.9,
+    rockDensity: 0.1,
+    trees: ["ROCK"],
+    secondaryDoodads: ["ROCK"],
+    elevationOffset: 0.05
+  },
+  DEAD_LANDS: {
+    ground: "DIRT",
+    beach: "MUD",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.5,
+    rockDensity: 0.1,
+    trees: ["TREE_DEAD"],
+    secondaryDoodads: ["STUMP"],
+    elevationOffset: 0
+  },
+  HIGHLANDS: {
+    ground: "GRASS",
+    beach: "ROCK_GROUND",
+    waterDeep: "WATER_DEEP",
+    waterShallow: "WATER_SHALLOW",
+    treeDensity: 0.8,
+    rockDensity: 0.15,
+    trees: ["TREE_PINE"],
+    secondaryDoodads: ["ROCK"],
+    elevationOffset: 0.2
+  }
+};
+
+const ROAD_TYPES: TileType[] = ["ROAD_MAIN", "ROAD_DIRT", "BRIDGE", "DOCK"];
+const WATER_TYPES: TileType[] = ["WATER_DEEP", "WATER_SHALLOW", "LAVA", "ICE"];
+const VALID_BUILD_GROUND: TileType[] = ["GRASS", "SAND", "DIRT", "SNOW", "ASH", "MUD", "ROCK_GROUND", "CRYSTAL_FLOOR"];
+const VALID_DOODAD_GROUND: TileType[] = ["GRASS", "DIRT", "SNOW", "SAND", "MUD", "ASH", "ROCK_GROUND", "CRYSTAL_FLOOR"];
+
+export function createVibeGameTownLayout(options: VibeGameTownOptions): VibeGameTownLayout {
+  const generator = new TownGenerator({
+    seed: hashSeed(`${options.seed}:${options.burgId}:TownGeneratorOS`),
+    biome: getTownBiome(options.biomeName, options.port),
+    density: getTownDensity(options.population, options.capital || options.walls || options.plaza),
+    connections: getConnections(options)
+  });
+  const town = generator.generate();
+  applyFmgBurgFlags(town, options);
+  const tileSize = getTileSize(options.population, options.capital);
+  const origin: [number, number] = [
+    round(options.center[0] - (town.width * tileSize) / 2),
+    round(options.center[1] - (town.height * tileSize) / 2)
+  ];
+  const tiles = flattenTiles(town, origin, tileSize);
+
+  return {
+    source: "TownGeneratorOS RealmSmithGenerator",
+    seed: town.seed,
+    name: options.name,
+    biome: town.biome,
+    density: town.density,
+    grid: {
+      width: town.width,
+      height: town.height,
+      tile_size_map_units: tileSize,
+      origin,
+      center: options.center
+    },
+    connections: town.connections,
+    tiles,
+    streets: getStreetTiles(town, origin, tileSize),
+    buildings: town.buildings.map(building => getBuildingLayout(building, origin, tileSize)),
+    walls: tiles.filter(tile => tile.type === "WALL"),
+    farms: tiles.filter(tile => tile.type === "FARM"),
+    doodads: getDoodads(town, origin, tileSize)
+  };
+}
+
+function applyFmgBurgFlags(town: TownMap, options: VibeGameTownOptions): void {
+  if (options.temple && !town.buildings.some(building => building.type === "CHURCH")) {
+    const building = getMostProminentBuilding(town);
+    if (building) building.type = "CHURCH";
+  }
+
+  if (options.capital && !town.buildings.some(building => building.type === "MANOR")) {
+    const building = getMostProminentBuilding(town);
+    if (building && building.type !== "CHURCH") building.type = "MANOR";
+  }
+}
+
+function getMostProminentBuilding(town: TownMap): Building | undefined {
+  return [...town.buildings].sort((a, b) => b.width * b.height - a.width * a.height)[0];
+}
+
+interface TownGeneratorOptions {
+  seed: number;
+  biome: BiomeType;
+  density: TownDensity;
+  connections: Record<Direction, boolean>;
+}
+
+class TownGenerator {
+  private rng: RNG;
+  private noise: NoiseGenerator;
+  private options: TownGeneratorOptions;
+  private biomeConfig: BiomeConfig;
+
+  constructor(options: TownGeneratorOptions) {
+    this.rng = new RNG(options.seed);
+    this.noise = new NoiseGenerator(options.seed);
+    this.options = options;
+    this.biomeConfig = BIOME_DATA[options.biome];
+  }
+
+  generate(): TownMap {
+    const tiles = this.createTiles();
+    this.generateTerrain(tiles);
+    const center = {
+      x: Math.floor(WIDTH / 2) + this.rng.rangeInt(-12, 12),
+      y: Math.floor(HEIGHT / 2) + this.rng.rangeInt(-10, 10)
+    };
+
+    this.generatePlaza(tiles, center);
+    this.generateRoads(tiles, center);
+    const buildings = this.placeBuildings(tiles, center);
+    this.generateWalls(tiles, buildings);
+    this.attachFieldsToFarms(tiles, buildings);
+    this.decorateDeadEnds(tiles);
+    this.placeDoodads(tiles);
+    this.placeStreetLamps(tiles);
+    this.setRoadConnections(tiles);
+
+    return {
+      width: WIDTH,
+      height: HEIGHT,
+      tiles,
+      buildings,
+      seed: this.options.seed,
+      biome: this.options.biome,
+      density: this.options.density,
+      connections: this.options.connections
+    };
+  }
+
+  private createTiles(): Tile[][] {
+    const tiles: Tile[][] = [];
+    for (let x = 0; x < WIDTH; x++) {
+      tiles[x] = [];
+      for (let y = 0; y < HEIGHT; y++) {
+        tiles[x][y] = { x, y, type: "EMPTY", variation: this.rng.next(), elevation: 0 };
+      }
+    }
+    return tiles;
+  }
+
+  private generateTerrain(tiles: Tile[][]): void {
+    const scale = 0.02;
+    const { ground, beach, waterDeep, waterShallow, elevationOffset } = this.biomeConfig;
+
+    for (let x = 0; x < WIDTH; x++) {
+      for (let y = 0; y < HEIGHT; y++) {
+        let value = this.noise.noise(x * scale, y * scale);
+        value += this.noise.noise(x * 0.08, y * 0.08) * 0.1;
+
+        const dx = (x - WIDTH / 2) / (WIDTH / 2);
+        const dy = (y - HEIGHT / 2) / (HEIGHT / 2);
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const centerBias = 0.25 * (1 - Math.min(1, dist));
+        const elevation = Math.max(0, Math.min(1, value + centerBias + elevationOffset));
+
+        tiles[x][y].elevation = elevation;
+        if (elevation < 0.35) tiles[x][y].type = waterDeep;
+        else if (elevation < 0.42) tiles[x][y].type = waterShallow;
+        else if (elevation < 0.48) tiles[x][y].type = beach;
+        else tiles[x][y].type = ground;
+      }
+    }
+  }
+
+  private generatePlaza(tiles: Tile[][], center: { x: number; y: number }): void {
+    if (isWater(tiles[center.x][center.y].type)) return;
+
+    if (this.options.density === "VERY_SPARSE") {
+      tiles[center.x][center.y].doodad = { type: "WELL", id: "town-center", offsetX: 0, offsetY: 0 };
+      return;
+    }
+
+    const size = 3;
+    for (let x = center.x - size; x <= center.x + size; x++) {
+      for (let y = center.y - size; y <= center.y + size; y++) {
+        if (!inBounds(x, y) || isWater(tiles[x][y].type)) continue;
+        if (Math.sqrt((x - center.x) ** 2 + (y - center.y) ** 2) <= size) tiles[x][y].type = "ROAD_MAIN";
+      }
+    }
+    tiles[center.x][center.y].doodad = { type: "WELL", id: "town-center", offsetX: 0, offsetY: 0 };
+  }
+
+  private generateRoads(tiles: Tile[][], center: { x: number; y: number }): void {
+    if (isWater(tiles[center.x][center.y].type)) return;
+
+    const mainRoadType: TileType = this.options.density === "VERY_SPARSE" ? "ROAD_DIRT" : "ROAD_MAIN";
+    const targets = this.getRoadTargets();
+    const arteryPoints: { x: number; y: number }[] = [];
+
+    for (const target of targets) {
+      let cx = center.x;
+      let cy = center.y;
+      const totalDx = target.x - cx;
+      const totalDy = target.y - cy;
+      const distTotal = Math.sqrt(totalDx * totalDx + totalDy * totalDy);
+      const stepX = totalDx / distTotal;
+      const stepY = totalDy / distTotal;
+      let currentDist = 0;
+
+      while (currentDist < distTotal) {
+        const noiseValue = this.noise.noise(cx * 0.05, cy * 0.05);
+        const curve = (noiseValue - 0.5) * 0.8;
+        cx += stepX - stepY * curve;
+        cy += stepY + stepX * curve;
+
+        const ix = Math.floor(cx);
+        const iy = Math.floor(cy);
+        if (!inBounds(ix, iy)) break;
+
+        const tileType = tiles[ix][iy].type;
+        if (tileType === "WATER_SHALLOW" && this.tryBuildBridge(tiles, ix, iy, stepX, stepY)) {
+          currentDist++;
+          continue;
+        }
+        if (tileType === "WATER_DEEP" || tileType === "WATER_SHALLOW") {
+          this.createDock(tiles, ix, iy, stepX, stepY);
+          break;
+        }
+        if (tileType === "LAVA") break;
+
+        if (tileType !== mainRoadType && tileType !== "DOCK" && tileType !== "BRIDGE") {
+          tiles[ix][iy].type = mainRoadType;
+          tiles[ix][iy].doodad = undefined;
+          arteryPoints.push({ x: ix, y: iy });
+        }
+        currentDist++;
+      }
+    }
+
+    if (this.options.density !== "VERY_SPARSE" && this.options.density !== "SPARSE") {
+      for (const radius of [12, 22]) {
+        if (this.rng.chance(0.4)) this.createRingRoad(tiles, center.x, center.y, radius);
+      }
+    }
+
+    const roadPoints = this.getRoadPoints(tiles, mainRoadType, center);
+    const processed = new Set<string>();
+    const branchChance = this.getBranchChance();
+
+    for (const point of roadPoints) {
+      const hash = `${point.x},${point.y}`;
+      if (processed.has(hash)) continue;
+      processed.add(hash);
+      if (!this.rng.chance(branchChance)) continue;
+
+      const dirs = shuffle(
+        [
+          { x: 0, y: 1 },
+          { x: 0, y: -1 },
+          { x: 1, y: 0 },
+          { x: -1, y: 0 }
+        ],
+        this.rng
+      );
+
+      for (const dir of dirs) {
+        const nx = point.x + dir.x;
+        const ny = point.y + dir.y;
+        if (inBounds(nx, ny) && tiles[nx][ny].type === mainRoadType) continue;
+        if (this.rng.chance(0.6)) this.createStreet(tiles, point.x, point.y, dir.x, dir.y, this.rng.rangeInt(4, 12));
+      }
+    }
+  }
+
+  private getRoadTargets(): { x: number; y: number }[] {
+    const targets: { x: number; y: number }[] = [];
+    const exitDev = 20;
+    if (this.options.connections.north)
+      targets.push({ x: Math.floor(WIDTH / 2 + this.rng.range(-exitDev, exitDev)), y: 0 });
+    if (this.options.connections.south)
+      targets.push({ x: Math.floor(WIDTH / 2 + this.rng.range(-exitDev, exitDev)), y: HEIGHT - 1 });
+    if (this.options.connections.east)
+      targets.push({ x: WIDTH - 1, y: Math.floor(HEIGHT / 2 + this.rng.range(-exitDev, exitDev)) });
+    if (this.options.connections.west)
+      targets.push({ x: 0, y: Math.floor(HEIGHT / 2 + this.rng.range(-exitDev, exitDev)) });
+    if (!targets.length) targets.push({ x: Math.floor(WIDTH / 2), y: HEIGHT - 1 });
+    return targets;
+  }
+
+  private getRoadPoints(
+    tiles: Tile[][],
+    mainRoadType: TileType,
+    center: { x: number; y: number }
+  ): { x: number; y: number }[] {
+    const points: { x: number; y: number }[] = [];
+    for (let x = 0; x < WIDTH; x++) {
+      for (let y = 0; y < HEIGHT; y++) {
+        if (tiles[x][y].type === mainRoadType) points.push({ x, y });
+      }
+    }
+    return points.sort(
+      (a, b) => (a.x - center.x) ** 2 + (a.y - center.y) ** 2 - ((b.x - center.x) ** 2 + (b.y - center.y) ** 2)
+    );
+  }
+
+  private getBranchChance(): number {
+    if (this.options.density === "VERY_SPARSE") return 0.05;
+    if (this.options.density === "SPARSE") return 0.1;
+    if (this.options.density === "MEDIUM") return 0.2;
+    if (this.options.density === "HIGH") return 0.35;
+    return 0.6;
+  }
+
+  private tryBuildBridge(tiles: Tile[][], startX: number, startY: number, dirX: number, dirY: number): boolean {
+    const dx = dirX > 0 ? 1 : dirX < 0 ? -1 : 0;
+    const dy = dirY > 0 ? 1 : dirY < 0 ? -1 : 0;
+    if (dx !== 0 && dy !== 0) return false;
+
+    let bridgeLen = 0;
+    for (let i = 1; i <= 6; i++) {
+      const tx = startX + dx * i;
+      const ty = startY + dy * i;
+      if (!inBounds(tx, ty)) return false;
+      if (tiles[tx][ty].type !== "WATER_DEEP" && tiles[tx][ty].type !== "WATER_SHALLOW") {
+        bridgeLen = i;
+        break;
+      }
+    }
+    if (!bridgeLen) return false;
+
+    for (let i = 0; i < bridgeLen; i++) {
+      const tx = startX + dx * i;
+      const ty = startY + dy * i;
+      if (tiles[tx][ty].type === "WATER_SHALLOW" || tiles[tx][ty].type === "WATER_DEEP") {
+        tiles[tx][ty].type = "BRIDGE";
+        tiles[tx][ty].doodad = undefined;
+      }
+    }
+    return true;
+  }
+
+  private createRingRoad(tiles: Tile[][], cx: number, cy: number, radius: number): void {
+    for (let i = 0; i < radius * 4; i++) {
+      const angle = (i / (radius * 4)) * Math.PI * 2;
+      const x = Math.round(cx + Math.cos(angle) * radius);
+      const y = Math.round(cy + Math.sin(angle) * radius * 0.8);
+      if (!inInnerBounds(x, y)) continue;
+      if (["WATER_DEEP", "WATER_SHALLOW", "LAVA", "ICE", "DOCK", "BRIDGE"].includes(tiles[x][y].type)) continue;
+      tiles[x][y].type = "ROAD_MAIN";
+    }
+  }
+
+  private createDock(tiles: Tile[][], startX: number, startY: number, dirX: number, dirY: number): void {
+    const dx = Math.abs(dirX) > Math.abs(dirY) ? (dirX > 0 ? 1 : -1) : 0;
+    const dy = dx ? 0 : dirY > 0 ? 1 : -1;
+    let cx = startX;
+    let cy = startY;
+
+    for (let i = 0; i < this.rng.rangeInt(4, 7); i++) {
+      if (!inBounds(cx, cy)) break;
+      tiles[cx][cy].type = "DOCK";
+      cx += dx;
+      cy += dy;
+    }
+
+    if (this.rng.chance(0.5) && inInnerBounds(cx, cy)) {
+      tiles[cx][cy].type = "DOCK";
+      if (dx) {
+        tiles[cx][cy - 1].type = "DOCK";
+        tiles[cx][cy + 1].type = "DOCK";
+      } else {
+        tiles[cx - 1][cy].type = "DOCK";
+        tiles[cx + 1][cy].type = "DOCK";
+      }
+    }
+  }
+
+  private createStreet(tiles: Tile[][], startX: number, startY: number, dx: number, dy: number, length: number): void {
+    let cx = startX;
+    let cy = startY;
+    let currentDx = dx;
+    let currentDy = dy;
+
+    for (let i = 0; i < length; i++) {
+      cx += currentDx;
+      cy += currentDy;
+      if (!inInnerBounds(cx, cy)) break;
+      const tile = tiles[cx][cy];
+      if (tile.type === "ROAD_MAIN") break;
+      if (["WATER_DEEP", "WATER_SHALLOW", "LAVA", "ICE", "DOCK", "BRIDGE"].includes(tile.type)) break;
+      tile.type = "ROAD_DIRT";
+
+      if (i > 2 && i < length - 2 && this.rng.chance(0.2)) {
+        if (currentDx) {
+          currentDy = this.rng.chance(0.5) ? 1 : -1;
+          currentDx = 0;
+        } else {
+          currentDx = this.rng.chance(0.5) ? 1 : -1;
+          currentDy = 0;
+        }
+      }
+    }
+
+    if (this.options.density !== "VERY_SPARSE" && this.options.density !== "SPARSE" && this.rng.chance(0.5)) {
+      this.createCulDeSac(tiles, cx, cy);
+    }
+  }
+
+  private createCulDeSac(tiles: Tile[][], cx: number, cy: number): void {
+    const neighbors = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: -1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 0, y: -1 },
+      { x: 1, y: 1 },
+      { x: -1, y: 1 },
+      { x: 1, y: -1 },
+      { x: -1, y: -1 }
+    ];
+
+    for (const neighbor of neighbors) {
+      const x = cx + neighbor.x;
+      const y = cy + neighbor.y;
+      if (!inInnerBounds(x, y)) continue;
+      if (["WATER_DEEP", "WATER_SHALLOW", "BRIDGE", "DOCK"].includes(tiles[x][y].type)) continue;
+      tiles[x][y].type = "ROAD_DIRT";
+      tiles[x][y].doodad = undefined;
+    }
+  }
+
+  private placeBuildings(tiles: Tile[][], center: { x: number; y: number }): Building[] {
+    const buildings: Building[] = [];
+    const roadTiles = this.getRoadTiles(tiles);
+    const densityNoiseOffset = this.rng.next() * 100;
+    const densityThreshold = this.getDensityThreshold();
+    shuffle(roadTiles, this.rng);
+
+    for (const roadTile of roadTiles) {
+      const districtValue = this.noise.noise(
+        roadTile.x * 0.1 + densityNoiseOffset,
+        roadTile.y * 0.1 + densityNoiseOffset
+      );
+      const dist = Math.sqrt((roadTile.x - center.x) ** 2 + (roadTile.y - center.y) ** 2);
+      const canSpawn =
+        this.options.density === "VERY_SPARSE"
+          ? this.rng.chance(0.05)
+          : 1 - districtValue > densityThreshold || dist < 10;
+      if (!canSpawn) continue;
+
+      const dirs = [
+        { x: 0, y: 1 },
+        { x: 0, y: -1 },
+        { x: 1, y: 0 },
+        { x: -1, y: 0 }
+      ];
+      for (const dir of dirs) {
+        const plotX = roadTile.x + dir.x;
+        const plotY = roadTile.y + dir.y;
+        const sizes =
+          dist < 15
+            ? [
+                { w: 3, h: 4 },
+                { w: 4, h: 3 },
+                { w: 3, h: 3 }
+              ]
+            : [];
+        sizes.push({ w: 2, h: 2 }, { w: 2, h: 3 }, { w: 3, h: 2 });
+
+        for (const size of sizes) {
+          let x = plotX;
+          let y = plotY;
+          if (dir.x === -1) x = plotX - size.w + 1;
+          if (dir.y === -1) y = plotY - size.h + 1;
+          if (!this.canBuild(tiles, x, y, size.w, size.h)) continue;
+          buildings.push(this.createBuilding(tiles, x, y, size.w, size.h, roadTile, dist));
+          break;
+        }
+      }
+    }
+    return buildings;
+  }
+
+  private getRoadTiles(tiles: Tile[][]): { x: number; y: number }[] {
+    const roadTiles: { x: number; y: number }[] = [];
+    for (let x = 1; x < WIDTH - 1; x++) {
+      for (let y = 1; y < HEIGHT - 1; y++) {
+        if (tiles[x][y].type === "ROAD_MAIN" || tiles[x][y].type === "ROAD_DIRT") roadTiles.push({ x, y });
+      }
+    }
+    return roadTiles;
+  }
+
+  private getDensityThreshold(): number {
+    if (this.options.density === "VERY_SPARSE") return 0.85;
+    if (this.options.density === "SPARSE") return 0.75;
+    if (this.options.density === "MEDIUM") return 0.65;
+    if (this.options.density === "HIGH") return 0.5;
+    return 0.3;
+  }
+
+  private canBuild(tiles: Tile[][], x: number, y: number, width: number, height: number): boolean {
+    if (x < 5 || x + width >= WIDTH - 5 || y < 5 || y + height >= HEIGHT - 5) return false;
+    for (let bx = x; bx < x + width; bx++) {
+      for (let by = 0; by < height; by++) {
+        const tile = tiles[bx][y + by];
+        if (!VALID_BUILD_GROUND.includes(tile.type) || tile.buildingId || tile.doodad) return false;
+      }
+    }
+    return true;
+  }
+
+  private createBuilding(
+    tiles: Tile[][],
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    roadTile: { x: number; y: number },
+    distToCenter: number
+  ): Building {
+    const id = `b_${x}_${y}`;
+    let type: BuildingType = "HOUSE_SMALL";
+
+    if (width >= 3 && height >= 3) {
+      if (distToCenter < 8 && this.rng.chance(0.3)) type = "CHURCH";
+      else if (distToCenter < 12 && this.rng.chance(0.4)) type = "TAVERN";
+      else if (distToCenter < 15 && this.rng.chance(0.2)) type = "MANOR";
+      else if (this.rng.chance(0.3)) type = "BLACKSMITH";
+      else type = "HOUSE_LARGE";
+    } else if (width === 2 && height === 2) {
+      if (distToCenter > 20 && this.rng.chance(0.4)) type = "FARM_HOUSE";
+      else if (distToCenter < 20 && this.rng.chance(0.05)) type = "TOWER";
+    } else if (distToCenter < 10 && this.rng.chance(0.3)) type = "MARKET_STALL";
+
+    for (let bx = 0; bx < width; bx++) {
+      for (let by = 0; by < height; by++) {
+        tiles[x + bx][y + by].type = "BUILDING_FLOOR";
+        tiles[x + bx][y + by].buildingId = id;
+      }
+    }
+
+    const door = this.findDoor(x, y, width, height, roadTile);
+    let color = "#ffedd5";
+    let roof = "#78350f";
+    let roofStyle = this.rng.pick<RoofStyle>(["THATCHED", "TILED", "SLATE"]);
+    let wallTexture = this.rng.pick<WallTexture>(["TIMBER_FRAME", "STONE", "STUCCO", "WOOD"]);
+
+    if (this.options.density === "VERY_SPARSE") {
+      wallTexture = this.rng.pick<WallTexture>(["WOOD", "TIMBER_FRAME"]);
+      roofStyle = this.rng.pick<RoofStyle>(["THATCHED", "SLATE"]);
+      if (type === "MANOR") type = "FARM_HOUSE";
+      if (type === "TOWER") type = "HOUSE_SMALL";
+      if (type === "CHURCH") {
+        color = "#d6d3d1";
+        roof = "#57534e";
+      }
+      if (type === "TAVERN") {
+        color = "#78350f";
+        roof = "#451a03";
+      }
+    }
+
+    if (roofStyle === "THATCHED") roof = "#d97706";
+    if (roofStyle === "TILED") roof = "#991b1b";
+    if (roofStyle === "SLATE") roof = "#334155";
+    if (type === "TAVERN") {
+      color = "#fbbf24";
+      roof = "#1e3a8a";
+    }
+    if (type === "BLACKSMITH") {
+      color = "#94a3b8";
+      roof = "#334155";
+    }
+    if (type === "HOUSE_LARGE") roof = "#7f1d1d";
+    if (type === "CHURCH") {
+      color = "#e2e8f0";
+      roof = "#4f46e5";
+    }
+    if (type === "MANOR") {
+      color = "#d1fae5";
+      roof = "#065f46";
+    }
+    if (type === "TOWER") {
+      color = "#9ca3af";
+      roof = "#111827";
+    }
+    if (type === "FARM_HOUSE") {
+      color = "#fef3c7";
+      roof = "#92400e";
+    }
+    if (type === "HOUSE_SMALL" && this.rng.chance(0.3)) roof = "#57534e";
+
+    return {
+      id,
+      type,
+      x,
+      y,
+      width,
+      height,
+      doorX: door.x,
+      doorY: door.y,
+      color,
+      roofColor: roof,
+      roofStyle,
+      wallTexture
+    };
+  }
+
+  private findDoor(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    roadTile: { x: number; y: number }
+  ): { x: number; y: number } {
+    let doorX = 0;
+    let doorY = 0;
+    let minDistance = Infinity;
+    const consider = (candidateX: number, candidateY: number, relativeX: number, relativeY: number) => {
+      const distance = (candidateX - roadTile.x) ** 2 + (candidateY - roadTile.y) ** 2;
+      if (distance >= minDistance) return;
+      minDistance = distance;
+      doorX = relativeX;
+      doorY = relativeY;
+    };
+
+    for (let bx = 0; bx < width; bx++) {
+      consider(x + bx, y, bx, 0);
+      consider(x + bx, y + height - 1, bx, height - 1);
+    }
+    for (let by = 0; by < height; by++) {
+      consider(x, y + by, 0, by);
+      consider(x + width - 1, y + by, width - 1, by);
+    }
+    return { x: doorX, y: doorY };
+  }
+
+  private attachFieldsToFarms(tiles: Tile[][], buildings: Building[]): void {
+    if (["DESERT", "GLACIER", "VOLCANIC", "CRYSTAL_WASTES", "BADLANDS"].includes(this.options.biome)) return;
+    const farmHouses = buildings.filter(building => building.type === "FARM_HOUSE");
+
+    for (const house of farmHouses) {
+      const crop = this.rng.pick<DoodadType>(["CROP_WHEAT", "CROP_CORN", "CROP_PUMPKIN"]);
+      let fieldsPlaced = 0;
+      const dirs = shuffle(
+        [
+          { dx: 0, dy: -1 },
+          { dx: 0, dy: 1 },
+          { dx: 1, dy: 0 },
+          { dx: -1, dy: 0 }
+        ],
+        this.rng
+      );
+
+      for (const dir of dirs) {
+        if (fieldsPlaced >= this.rng.rangeInt(1, 3)) break;
+        const width = this.rng.rangeInt(3, 7);
+        const height = this.rng.rangeInt(3, 7);
+        let x = house.x;
+        let y = house.y;
+        if (dir.dx === 1) x = house.x + house.width + 1;
+        if (dir.dx === -1) x = house.x - width - 1;
+        if (dir.dy === 1) y = house.y + house.height + 1;
+        if (dir.dy === -1) y = house.y - height - 1;
+        if (dir.dx) y += this.rng.rangeInt(-2, 2);
+        else x += this.rng.rangeInt(-2, 2);
+
+        if (!this.canPlaceFarm(tiles, x, y, width, height)) continue;
+        this.createFarmField(tiles, x, y, width, height, crop);
+        fieldsPlaced++;
+      }
+    }
+  }
+
+  private canPlaceFarm(tiles: Tile[][], x: number, y: number, width: number, height: number): boolean {
+    if (x < 1 || x + width >= WIDTH - 1 || y < 1 || y + height >= HEIGHT - 1) return false;
+    for (let fx = x; fx < x + width; fx++) {
+      for (let fy = y; fy < y + height; fy++) {
+        const tile = tiles[fx][fy];
+        if (!["GRASS", "DIRT", "MUD"].includes(tile.type) || tile.buildingId || tile.doodad) return false;
+      }
+    }
+    return true;
+  }
+
+  private createFarmField(
+    tiles: Tile[][],
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    crop: DoodadType
+  ): void {
+    for (let fx = x; fx < x + width; fx++) {
+      for (let fy = y; fy < y + height; fy++) {
+        tiles[fx][fy].type = "FARM";
+        if (fx % 2 === 0) tiles[fx][fy].doodad = { type: crop, id: `crop_${fx}_${fy}`, offsetX: 0, offsetY: 0 };
+      }
+    }
+  }
+
+  private generateWalls(tiles: Tile[][], buildings: Building[]): void {
+    if (this.options.density === "VERY_SPARSE" || this.options.density === "SPARSE" || buildings.length < 5) return;
+    let minX = WIDTH;
+    let maxX = 0;
+    let minY = HEIGHT;
+    let maxY = 0;
+    for (const building of buildings) {
+      minX = Math.min(minX, building.x);
+      maxX = Math.max(maxX, building.x + building.width);
+      minY = Math.min(minY, building.y);
+      maxY = Math.max(maxY, building.y + building.height);
+    }
+
+    minX = Math.max(2, minX - 6);
+    maxX = Math.min(WIDTH - 3, maxX + 6);
+    minY = Math.max(2, minY - 6);
+    maxY = Math.min(HEIGHT - 3, maxY + 6);
+    const setWall = (x: number, y: number) => {
+      const type = tiles[x][y].type;
+      if (isWater(type) || type === "ROAD_MAIN" || type === "BUILDING_FLOOR") return;
+      tiles[x][y].type = "WALL";
+      tiles[x][y].doodad = undefined;
+    };
+
+    for (let x = minX; x <= maxX; x++) {
+      setWall(x, minY);
+      setWall(x, maxY);
+    }
+    for (let y = minY; y <= maxY; y++) {
+      setWall(minX, y);
+      setWall(maxX, y);
+    }
+  }
+
+  private decorateDeadEnds(tiles: Tile[][]): void {
+    for (let x = 1; x < WIDTH - 1; x++) {
+      for (let y = 1; y < HEIGHT - 1; y++) {
+        if (tiles[x][y].type !== "ROAD_DIRT") continue;
+        const connections = countRoadNeighbors(tiles, x, y);
+        if (connections === 1 && this.rng.chance(0.4)) {
+          tiles[x][y].doodad = {
+            type: this.rng.pick<DoodadType>(["CRATE", "WELL", "STREET_LAMP"]),
+            id: `de_${x}_${y}`,
+            offsetX: 0,
+            offsetY: 0
+          };
+        }
+      }
+    }
+  }
+
+  private placeDoodads(tiles: Tile[][]): void {
+    const { trees, secondaryDoodads, treeDensity, rockDensity } = this.biomeConfig;
+    for (let x = 0; x < WIDTH; x++) {
+      for (let y = 0; y < HEIGHT; y++) {
+        const tile = tiles[x][y];
+        if (tile.buildingId || tile.doodad || isRoad(tile.type) || tile.type === "WALL" || tile.type === "FARM")
+          continue;
+        if (!VALID_DOODAD_GROUND.includes(tile.type)) continue;
+        const noiseValue = this.noise.noise(x * 0.15, y * 0.15);
+        if (noiseValue > 1 - treeDensity && this.rng.chance(0.6)) {
+          tile.doodad = {
+            type: this.rng.pick(trees),
+            id: `tree_${x}_${y}`,
+            offsetX: this.rng.range(-0.2, 0.2),
+            offsetY: this.rng.range(-0.2, 0.2)
+          };
+        } else if (this.rng.chance(rockDensity)) {
+          tile.doodad = {
+            type: this.rng.pick(secondaryDoodads),
+            id: `rock_${x}_${y}`,
+            offsetX: this.rng.range(-0.3, 0.3),
+            offsetY: this.rng.range(-0.3, 0.3)
+          };
+        }
+      }
+    }
+  }
+
+  private placeStreetLamps(tiles: Tile[][]): void {
+    for (let x = 2; x < WIDTH - 2; x += 3) {
+      for (let y = 2; y < HEIGHT - 2; y += 3) {
+        if (tiles[x][y].type !== "ROAD_MAIN" || !this.rng.chance(0.15)) continue;
+        for (const neighbor of [
+          { x: 1, y: 0 },
+          { x: -1, y: 0 },
+          { x: 0, y: 1 },
+          { x: 0, y: -1 }
+        ]) {
+          const tile = tiles[x + neighbor.x][y + neighbor.y];
+          if (isRoad(tile.type) || tile.buildingId || tile.doodad || tile.type === "WALL" || tile.type === "WATER_DEEP")
+            continue;
+          tile.doodad = { type: "STREET_LAMP", id: `lamp_${x + neighbor.x}_${y + neighbor.y}`, offsetX: 0, offsetY: 0 };
+          break;
+        }
+      }
+    }
+  }
+
+  private setRoadConnections(tiles: Tile[][]): void {
+    for (let x = 0; x < WIDTH; x++) {
+      for (let y = 0; y < HEIGHT; y++) {
+        if (!isRoad(tiles[x][y].type)) continue;
+        let mask = 0;
+        if (y > 0 && isRoad(tiles[x][y - 1].type)) mask |= 1;
+        if (x < WIDTH - 1 && isRoad(tiles[x + 1][y].type)) mask |= 2;
+        if (y < HEIGHT - 1 && isRoad(tiles[x][y + 1].type)) mask |= 4;
+        if (x > 0 && isRoad(tiles[x - 1][y].type)) mask |= 8;
+        tiles[x][y].roadConnections = mask;
+      }
+    }
+  }
+}
+
+class RNG {
+  private state: number;
+
+  constructor(seedValue: number) {
+    this.state = seedValue;
+  }
+
+  next(): number {
+    this.state += 0x6d2b79f5;
+    let value = this.state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  }
+
+  range(min: number, max: number): number {
+    return min + this.next() * (max - min);
+  }
+
+  rangeInt(min: number, max: number): number {
+    return Math.floor(this.range(min, max + 1));
+  }
+
+  chance(probability: number): boolean {
+    return this.next() < probability;
+  }
+
+  pick<T>(array: T[]): T {
+    return array[this.rangeInt(0, array.length - 1)];
+  }
+}
+
+class NoiseGenerator {
+  private perm: number[] = new Array(512);
+  private p: number[] = new Array(256);
+
+  constructor(seedValue: number) {
+    const rng = new RNG(seedValue);
+    for (let i = 0; i < 256; i++) this.p[i] = i;
+    for (let i = 255; i > 0; i--) {
+      const n = rng.rangeInt(0, i);
+      const temp = this.p[i];
+      this.p[i] = this.p[n];
+      this.p[n] = temp;
+    }
+    for (let i = 0; i < 512; i++) this.perm[i] = this.p[i & 255];
+  }
+
+  noise(x: number, y: number): number {
+    const xBase = Math.floor(x) & 255;
+    const yBase = Math.floor(y) & 255;
+    x -= Math.floor(x);
+    y -= Math.floor(y);
+    const u = fade(x);
+    const v = fade(y);
+    const a = this.perm[xBase] + yBase;
+    const b = this.perm[xBase + 1] + yBase;
+    const aa = grad(this.perm[a], x, y);
+    const ab = grad(this.perm[a + 1], x - 1, y);
+    const ba = grad(this.perm[b], x, y - 1);
+    const bb = grad(this.perm[b + 1], x - 1, y - 1);
+    return (lerp(v, lerp(u, aa, ab), lerp(u, ba, bb)) + 1) / 2;
+  }
+}
+
+function getTownBiome(fmgBiomeName: string | undefined, isPort: boolean): BiomeType {
+  if (isPort) return "COASTAL";
+  const name = (fmgBiomeName || "").toLowerCase();
+  if (name.includes("desert")) return "DESERT";
+  if (name.includes("tundra")) return "TUNDRA";
+  if (name.includes("taiga")) return "TAIGA";
+  if (name.includes("swamp") || name.includes("wetland")) return "SWAMP";
+  if (name.includes("tropical") || name.includes("rainforest")) return "JUNGLE";
+  if (name.includes("savanna")) return "SAVANNA";
+  if (name.includes("mountain") || name.includes("alpine")) return "MOUNTAIN";
+  if (name.includes("glacier") || name.includes("ice")) return "GLACIER";
+  if (name.includes("forest") || name.includes("wood")) return "FOREST";
+  if (name.includes("grass") || name.includes("steppe")) return "PLAINS";
+  return "PLAINS";
+}
+
+function getTownDensity(population: number, isCapital: boolean): TownDensity {
+  if (isCapital || population >= 240) return "EXTREME";
+  if (population >= 160) return "HIGH";
+  if (population >= 80) return "MEDIUM";
+  if (population >= 35) return "SPARSE";
+  return "VERY_SPARSE";
+}
+
+function getConnections(options: VibeGameTownOptions): Record<Direction, boolean> {
+  const rng = new RNG(hashSeed(`${options.seed}:${options.burgId}:town-connections`));
+  const connections: Record<Direction, boolean> = {
+    north: Boolean(options.connections?.north),
+    east: Boolean(options.connections?.east),
+    south: Boolean(options.connections?.south),
+    west: Boolean(options.connections?.west)
+  };
+  if (Object.values(connections).some(Boolean)) return connections;
+
+  const directions: Direction[] = ["north", "east", "south", "west"];
+  shuffle(directions, rng);
+  const count = options.capital ? 4 : options.port ? 3 : rng.rangeInt(1, 3);
+  for (const direction of directions.slice(0, count)) connections[direction] = true;
+  return connections;
+}
+
+function getTileSize(population: number, isCapital: boolean): number {
+  const size = 0.52 + Math.sqrt(Math.max(20, population)) / (isCapital ? 28 : 34);
+  return round(Math.min(1.25, Math.max(0.55, size)), 3);
+}
+
+function flattenTiles(town: TownMap, origin: [number, number], tileSize: number): VibeGameTownTile[] {
+  const tiles: VibeGameTownTile[] = [];
+  for (let x = 0; x < town.width; x++) {
+    for (let y = 0; y < town.height; y++) {
+      const tile = town.tiles[x][y];
+      tiles.push(getTileLayout(tile, origin, tileSize));
+    }
+  }
+  return tiles;
+}
+
+function getStreetTiles(town: TownMap, origin: [number, number], tileSize: number): VibeGameTownStreetTile[] {
+  const streets: VibeGameTownStreetTile[] = [];
+  for (let x = 0; x < town.width; x++) {
+    for (let y = 0; y < town.height; y++) {
+      const tile = town.tiles[x][y];
+      if (!isRoad(tile.type)) continue;
+      streets.push({
+        ...getTileLayout(tile, origin, tileSize),
+        kind: getStreetKind(tile.type),
+        neighbors: getRoadNeighbors(town.tiles, x, y)
+      });
+    }
+  }
+  return streets;
+}
+
+function getTileLayout(tile: Tile, origin: [number, number], tileSize: number): VibeGameTownTile {
+  return {
+    x: tile.x,
+    y: tile.y,
+    type: tile.type,
+    elevation: round(tile.elevation, 4),
+    variation: round(tile.variation, 4),
+    coordinate_center: gridToMap(tile.x + 0.5, tile.y + 0.5, origin, tileSize),
+    road_connections: tile.roadConnections,
+    building_id: tile.buildingId,
+    doodad_id: tile.doodad?.id
+  };
+}
+
+function getBuildingLayout(building: Building, origin: [number, number], tileSize: number): VibeGameTownBuilding {
+  const x1 = building.x;
+  const y1 = building.y;
+  const x2 = building.x + building.width;
+  const y2 = building.y + building.height;
+  const doorGrid: [number, number] = [building.x + building.doorX, building.y + building.doorY];
+  return {
+    id: building.id,
+    type: building.type,
+    grid_rect: { x: building.x, y: building.y, width: building.width, height: building.height },
+    coordinate_center: gridToMap(building.x + building.width / 2, building.y + building.height / 2, origin, tileSize),
+    footprint: [
+      gridToMap(x1, y1, origin, tileSize),
+      gridToMap(x2, y1, origin, tileSize),
+      gridToMap(x2, y2, origin, tileSize),
+      gridToMap(x1, y2, origin, tileSize),
+      gridToMap(x1, y1, origin, tileSize)
+    ],
+    door: {
+      grid: doorGrid,
+      coordinate: gridToMap(doorGrid[0] + 0.5, doorGrid[1] + 0.5, origin, tileSize)
+    },
+    color: building.color,
+    roof_color: building.roofColor,
+    roof_style: building.roofStyle,
+    wall_texture: building.wallTexture
+  };
+}
+
+function getDoodads(town: TownMap, origin: [number, number], tileSize: number): VibeGameTownDoodad[] {
+  const doodads: VibeGameTownDoodad[] = [];
+  for (let x = 0; x < town.width; x++) {
+    for (let y = 0; y < town.height; y++) {
+      const doodad = town.tiles[x][y].doodad;
+      if (!doodad) continue;
+      doodads.push({
+        id: doodad.id,
+        type: doodad.type,
+        grid: [x, y],
+        coordinate: gridToMap(x + 0.5 + doodad.offsetX, y + 0.5 + doodad.offsetY, origin, tileSize),
+        offset: [round(doodad.offsetX, 3), round(doodad.offsetY, 3)]
+      });
+    }
+  }
+  return doodads;
+}
+
+function gridToMap(x: number, y: number, origin: [number, number], tileSize: number): [number, number] {
+  return [round(origin[0] + x * tileSize), round(origin[1] + y * tileSize)];
+}
+
+function getStreetKind(type: TileType): VibeGameTownStreetTile["kind"] {
+  if (type === "ROAD_MAIN") return "main";
+  if (type === "ROAD_DIRT") return "dirt";
+  if (type === "BRIDGE") return "bridge";
+  return "dock";
+}
+
+function getRoadNeighbors(tiles: Tile[][], x: number, y: number): [number, number][] {
+  const neighbors: [number, number][] = [];
+  for (const [dx, dy] of [
+    [0, -1],
+    [1, 0],
+    [0, 1],
+    [-1, 0]
+  ] as [number, number][]) {
+    const nx = x + dx;
+    const ny = y + dy;
+    if (inBounds(nx, ny) && isRoad(tiles[nx][ny].type)) neighbors.push([nx, ny]);
+  }
+  return neighbors;
+}
+
+function countRoadNeighbors(tiles: Tile[][], x: number, y: number): number {
+  return getRoadNeighbors(tiles, x, y).length;
+}
+
+function hashSeed(value: string): number {
+  let state = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    state ^= value.charCodeAt(i);
+    state = Math.imul(state, 16777619);
+  }
+  return state >>> 0;
+}
+
+function shuffle<T>(array: T[], rng: RNG): T[] {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(rng.next() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
+function isWater(type: TileType): boolean {
+  return WATER_TYPES.includes(type);
+}
+
+function isRoad(type: TileType): boolean {
+  return ROAD_TYPES.includes(type);
+}
+
+function inBounds(x: number, y: number): boolean {
+  return x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT;
+}
+
+function inInnerBounds(x: number, y: number): boolean {
+  return x >= 1 && x < WIDTH - 1 && y >= 1 && y < HEIGHT - 1;
+}
+
+function fade(t: number): number {
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+function lerp(t: number, a: number, b: number): number {
+  return a + t * (b - a);
+}
+
+function grad(hash: number, x: number, y: number): number {
+  const h = hash & 15;
+  const u = h < 8 ? x : y;
+  const v = h < 4 ? y : h === 12 || h === 14 ? x : 0;
+  return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+}
+
+function round(value: number, digits = 2): number {
+  return Number(value.toFixed(digits));
+}

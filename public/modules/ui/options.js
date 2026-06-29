@@ -111,7 +111,7 @@ function updateOutputToFollowInput(ev) {
   const value = ev.target.value;
 
   // specific cases
-  if (id === "manorsInput") return (manorsOutput.value = value == 1000 ? "auto" : value);
+  if (id === "manorsInput") return (manorsOutput.value = value);
 
   // generic case
   if (id.slice(-5) === "Input") {
@@ -342,12 +342,27 @@ const cellsDensityMap = {
   13: 100000
 };
 
+const defaultGenerationOptions = {
+  points: 4, // 10K cells
+  template: "pangea",
+  states: 30,
+  provincesRatio: 50,
+  burgs: 30
+};
+
 function changeCellsDensity(value) {
   pointsInput.value = value;
   const cells = cellsDensityMap[value] || pointsInput.dataset.cells;
   pointsInput.dataset.cells = cells;
   pointsOutputFormatted.value = cells / 1000 + "K";
   pointsOutputFormatted.style.color = getCellsDensityColor(cells);
+}
+
+function setSliderInputValue(id, value) {
+  const el = ensureEl(id);
+  el.value = value;
+  el.setAttribute("value", value);
+  el.querySelectorAll("input").forEach(input => (input.value = value));
 }
 
 function getCellsDensityColor(cells) {
@@ -599,13 +614,13 @@ function randomizeOptions() {
   const randomize = new URL(window.location.href).searchParams.get("options") === "default"; // ignore stored options
 
   // 'Options' settings
-  if (randomize || !locked("points")) changeCellsDensity(1); // reset to game profile default, no need to randomize
-  if (randomize || !locked("template")) randomizeHeightmapTemplate();
-  if (randomize || !locked("statesNumber")) statesNumber.value = gauss(4, 1, 2, 6);
-  if (randomize || !locked("provincesRatio")) provincesRatio.value = gauss(20, 10, 20, 100);
+  if (randomize || !locked("points")) changeCellsDensity(defaultGenerationOptions.points);
+  if (randomize || !locked("template")) applyDefaultHeightmapTemplate();
+  if (randomize || !locked("statesNumber")) setSliderInputValue("statesNumber", defaultGenerationOptions.states);
+  if (randomize || !locked("provincesRatio")) setSliderInputValue("provincesRatio", defaultGenerationOptions.provincesRatio);
   if (randomize || !locked("manors")) {
-    manorsInput.value = 24;
-    manorsOutput.value = "24";
+    manorsInput.value = defaultGenerationOptions.burgs;
+    manorsOutput.value = String(defaultGenerationOptions.burgs);
   }
   if (randomize || !locked("religionsNumber")) religionsNumber.value = gauss(6, 3, 2, 10);
   if (randomize || !locked("sizeVariety")) sizeVariety.value = gauss(4, 2, 0, 10, 1);
@@ -637,6 +652,12 @@ function randomizeHeightmapTemplate() {
     templates[key] = heightmapTemplates[key].probability || 0;
   }
   const template = rw(templates);
+  const name = heightmapTemplates[template].name;
+  applyOption(ensureEl("templateInput"), template, name);
+}
+
+function applyDefaultHeightmapTemplate() {
+  const template = defaultGenerationOptions.template;
   const name = heightmapTemplates[template].name;
   applyOption(ensureEl("templateInput"), template, name);
 }
@@ -716,7 +737,8 @@ async function openTemplateSelectionDialog() {
 // Sticked menu Options listeners
 ensureEl("sticked").addEventListener("click", function (event) {
   const id = event.target.id;
-  if (id === "newMapButton") regeneratePrompt();
+  if (id === "updateMapButton") regeneratePrompt({ seed: optionsSeed.value || seed, preserveOptions: true });
+  else if (id === "newMapButton") regeneratePrompt();
   else if (id === "saveButton") showSavePane();
   else if (id === "exportButton") showExportPane();
   else if (id === "loadButton") showLoadPane();

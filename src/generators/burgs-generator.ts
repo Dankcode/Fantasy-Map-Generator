@@ -149,7 +149,9 @@ class BurgModule {
     TIME && console.timeEnd("generateBurgs");
 
     function getCapitalsNumber() {
-      let number = (ensureEl("statesNumber") as HTMLInputElement).valueAsNumber;
+      const statesNumber = ensureEl("statesNumber") as HTMLInputElement;
+      const statesNumberInput = statesNumber.querySelector<HTMLInputElement>("input[type=number]");
+      let number = statesNumber.valueAsNumber || statesNumberInput?.valueAsNumber || 0;
 
       if (populatedCells.length < number * 10) {
         number = Math.floor(populatedCells.length / 10);
@@ -390,9 +392,7 @@ class BurgModule {
     burg.shanty = Number(pop > 2.5 || (pop > 1.8 && burg.walls && P(0.25)));
     const religion = pack.cells.religion[burg.cell] as number;
     const theocracy = pack.states[burg.state as number].form === "Theocracy";
-    burg.temple = Number(
-      (religion && theocracy && P(0.35)) || pop > 2.4 || (pop > 1.6 && P(0.4))
-    );
+    burg.temple = Number((religion && theocracy && P(0.35)) || pop > 2.4 || (pop > 1.6 && P(0.4)));
   }
 
   getDefaultGroups() {

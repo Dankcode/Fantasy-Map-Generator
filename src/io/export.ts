@@ -1,6 +1,7 @@
 import type { Selection } from "d3";
 import { select } from "d3";
 import { connectVertices, ensureEl, getBase64, getCoordinates, getGridPolygon, rn, unique } from "@/utils";
+import { createVibeGameTownLayout } from "./vibe-game-town-generator";
 
 type MapSelection = Selection<SVGSVGElement, unknown, null, undefined>;
 
@@ -107,14 +108,39 @@ export function exportGameTopologyJson(): void {
     return;
   }
 
-  const json = JSON.stringify(getGameTopologyData());
-  downloadFile(json, `${getFileName("game-topology")}.json`, "application/json");
-  tip("Game topology JSON is saved", true, "success", 7000);
+  const baseName = getFileName("vibe-game-map");
+  const json = JSON.stringify(getVibeGameMapData());
+  downloadFile(json, `${baseName}.json`, "application/json");
+  tip("vibe-game map JSON is saved", true, "success", 7000);
 }
 
 export async function exportGameMapFiles(): Promise<void> {
-  await exportGameMapImages();
-  exportGameTopologyJson();
+  if (customization) {
+    tip("Game data cannot be exported when edit mode is active, please exit the mode and retry", false, "error");
+    return;
+  }
+
+  TIME && console.time("exportGameMapFiles");
+  try {
+    await loadScript("libs/jszip.min.js");
+    const zip = new window.JSZip();
+    const baseName = getFileName("vibe-game-map");
+    const [svgBlob, pngBlob] = await Promise.all([getSvgBlob(), getPngBlob(true)]);
+    const json = JSON.stringify(getVibeGameMapData(`${baseName}.png`));
+
+    zip.file(`${baseName}.svg`, svgBlob);
+    zip.file(`${baseName}.png`, pngBlob);
+    zip.file(`${baseName}.json`, json);
+
+    const archive = await zip.generateAsync({ type: "blob" });
+    downloadBlob(archive, `${baseName}.zip`);
+    tip(`${baseName}.zip is saved. It contains the PNG map render and vibe-game JSON`, true, "success", 7000);
+  } catch (error) {
+    ERROR && console.error(error);
+    tip(`vibe-game export failed: ${(error as Error)?.message || "Unknown error"}`, true, "error", 5000);
+  } finally {
+    TIME && console.timeEnd("exportGameMapFiles");
+  }
 }
 
 export async function exportToJpeg(): Promise<void> {
@@ -212,15 +238,17 @@ function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, qualityArgume
   });
 }
 
-function getGameTopologyData() {
+function getVibeGameMapData(pngFileName?: string) {
   const peoplePerPoint = populationRate * urbanization;
-  const landCells = Array.from(pack.cells.i)
-    .filter(cellId => pack.cells.h[cellId] >= 20)
-    .map(cellId => ({
+  const cells = Array.from(pack.cells.i).map(cellId => {
+    const height = pack.cells.h[cellId];
+    return {
       id: cellId,
       coordinate: roundPoint(pack.cells.p[cellId]),
       geo_coordinate: toGeoCoordinates(...pack.cells.p[cellId]),
-      elevation: pack.cells.h[cellId],
+      height,
+      elevation: height,
+      terrain: height >= 20 ? "land" : "water",
       area: pack.cells.area[cellId],
       feature: pack.cells.f[cellId],
       biome: pack.cells.biome[cellId],
@@ -228,16 +256,21 @@ function getGameTopologyData() {
       state: pack.cells.state[cellId],
       province: pack.cells.province[cellId],
       religion: pack.cells.religion[cellId],
+      good: pack.cells.good?.[cellId] || 0,
+      market: pack.cells.market?.[cellId] || 0,
+      river: pack.cells.r[cellId] || 0,
+      flux: pack.cells.fl[cellId] || 0,
       population_points: rn(Number(pack.cells.pop[cellId]), 3),
       burg: pack.cells.burg[cellId] || 0,
       neighbors: pack.cells.c[cellId]
-    }));
+    };
+  });
 
   return {
     metadata: {
-      schema: "fmg-game-topology",
-      schema_version: 1,
-      source: "Azgaar Fantasy Map Generator game implementation fork",
+      schema: "vibe-game-map",
+      schema_version: 2,
+      source: "Azgaar Fantasy Map Generator",
       exported_at: new Date().toISOString(),
       map_name: mapName.value,
       seed,
@@ -255,30 +288,128 @@ function getGameTopologyData() {
         street_bias: "horizontal-main"
       }
     },
-    world_environment: {
+    image: {
+      file: pngFileName || null,
+      coordinate_space: "fmg-svg-pixels",
+      width: graphWidth,
+      height: graphHeight
+    },
+    world: {
       map_coordinates: mapCoordinates,
-      land_matrix_nodes: landCells,
-      features: pack.features,
-      routes: pack.routes.map(route => ({
-        id: route.i,
-        group: route.group,
-        feature: route.feature,
-        points: route.points?.map(point => roundPoint([point[0], point[1]]))
+      width: graphWidth,
+      height: graphHeight,
+      cells,
+      features: pack.features.map(feature => ({ ...feature })),
+      routes: pack.routes.map(createGameRoute),
+      rivers: pack.rivers.map(river => ({
+        id: river.i,
+        name: river.name,
+        type: river.type,
+        source_cell: river.source,
+        mouth_cell: river.mouth,
+        parent: river.parent,
+        basin: river.basin,
+        length: river.length,
+        discharge: river.discharge,
+        width: river.width,
+        cells: river.cells,
+        points: river.points?.map(point => roundPoint([point[0], point[1]]))
       }))
     },
-    political_context: {
-      states: pack.states,
-      cultures: pack.cultures,
-      religions: pack.religions,
+    entities: {
+      burgs: pack.burgs.filter(burg => burg.i && !burg.removed).map(burg => createGameBurgNode(burg, peoplePerPoint)),
+      states: pack.states
+        .filter(state => state.i && !state.removed)
+        .map(state => ({
+          id: state.i,
+          name: state.name,
+          full_name: state.fullName,
+          form: state.form,
+          color: state.color,
+          capital: state.capital,
+          center_cell: state.center,
+          culture: state.culture,
+          cells: state.cells,
+          burgs: state.burgs,
+          population: {
+            rural_points: rn(Number(state.rural || 0), 3),
+            urban_points: rn(Number(state.urban || 0), 3)
+          },
+          neighbors: state.neighbors || []
+        })),
+      cultures: pack.cultures
+        .filter(culture => culture.i && !culture.removed)
+        .map(culture => ({
+          id: culture.i,
+          name: culture.name,
+          type: culture.type,
+          color: culture.color,
+          center_cell: culture.center,
+          cells: culture.cells
+        })),
+      religions: pack.religions
+        .filter(religion => religion.i && !religion.removed)
+        .map(religion => ({
+          id: religion.i,
+          name: religion.name,
+          type: religion.type,
+          color: religion.color,
+          center_cell: religion.center,
+          cells: religion.cells
+        })),
       provinces: pack.provinces
+        .filter(province => province.i && !province.removed)
+        .map(province => ({
+          id: province.i,
+          name: province.name,
+          full_name: province.fullName,
+          color: province.color,
+          center_cell: province.center,
+          burg: province.burg,
+          cell_count: countCellsInProvince(province.i)
+        }))
     },
-    burgs: pack.burgs.filter(burg => burg.i && !burg.removed).map(burg => createGameBurgNode(burg, peoplePerPoint))
+    legacy_fmg_refs: {
+      biomes: biomesData.name,
+      notes
+    }
+  };
+}
+
+function countCellsInProvince(provinceId: number): number {
+  let count = 0;
+  for (const cellProvinceId of pack.cells.province) {
+    if (cellProvinceId === provinceId) count++;
+  }
+  return count;
+}
+
+function createGameRoute(route: (typeof pack.routes)[number]) {
+  return {
+    id: route.i,
+    kind: route.group,
+    feature: route.feature,
+    cells: route.cells || route.points?.map(point => point[2]).filter(cellId => cellId !== undefined) || [],
+    points: route.points?.map(point => roundPoint([point[0], point[1]])) || []
   };
 }
 
 function createGameBurgNode(burg: (typeof pack.burgs)[number], peoplePerPoint: number) {
   const population = getGamePopulation(burg, peoplePerPoint);
-  const layout = createBurgLayout(burg, population);
+  const town = createVibeGameTownLayout({
+    burgId: burg.i,
+    name: burg.name,
+    seed,
+    center: [burg.x, burg.y],
+    population,
+    biomeName: biomesData.name[pack.cells.biome[burg.cell]],
+    capital: Boolean(burg.capital),
+    port: Boolean(burg.port),
+    walls: Boolean(burg.walls),
+    temple: Boolean(burg.temple),
+    plaza: Boolean(burg.plaza),
+    connections: getBurgTownConnections(burg)
+  });
 
   return {
     id: burg.i,
@@ -292,136 +423,44 @@ function createGameBurgNode(burg: (typeof pack.burgs)[number], peoplePerPoint: n
     geo_coordinate: toGeoCoordinates(burg.x, burg.y),
     population,
     original_population_points: rn(Number(burg.population || 0), 3),
-    infrastructure: {
-      main_street_orientation: "horizontal",
-      arterial_roads: layout.arterial_roads,
-      secondary_roads: layout.secondary_roads,
-      defensive_wall_boundary: layout.defensive_wall_boundary,
-      buildings: layout.buildings
-    },
+    town,
+    infrastructure: town,
+    buildings: town.buildings,
+    streets: town.streets,
+    walls: town.walls,
+    farms: town.farms,
+    doodads: town.doodads,
     flags: {
       capital: Boolean(burg.capital),
       port: Boolean(burg.port),
       citadel: Boolean(burg.citadel),
       plaza: Boolean(burg.plaza),
-      walls: Boolean(layout.defensive_wall_boundary.length),
+      walls: town.walls.length > 0,
       temple: Boolean(burg.temple)
     }
   };
+}
+
+function getBurgTownConnections(burg: (typeof pack.burgs)[number]) {
+  const connections: Partial<Record<"north" | "east" | "south" | "west", boolean>> = {};
+  const routeLinks = pack.cells.routes?.[burg.cell];
+  if (!routeLinks) return connections;
+
+  for (const neighborId of Object.keys(routeLinks).map(Number)) {
+    const neighbor = pack.cells.p[neighborId];
+    if (!neighbor) continue;
+    const dx = neighbor[0] - burg.x;
+    const dy = neighbor[1] - burg.y;
+    if (Math.abs(dx) > Math.abs(dy)) connections[dx > 0 ? "east" : "west"] = true;
+    else connections[dy > 0 ? "south" : "north"] = true;
+  }
+  return connections;
 }
 
 function getGamePopulation(burg: (typeof pack.burgs)[number], peoplePerPoint: number): number {
   const raw = Math.round(Number(burg.population || 0) * peoplePerPoint);
   const max = burg.capital ? 300 : 120;
   return Math.max(20, Math.min(max, raw));
-}
-
-function createBurgLayout(burg: (typeof pack.burgs)[number], population: number) {
-  const rand = createSeededRandom(`${seed}:${burg.i}:voxel-city`);
-  const isCapital = Boolean(burg.capital);
-  const buildingCount = Math.max(3, Math.min(isCapital ? 30 : 12, Math.ceil(population / 10)));
-  const radius = Math.max(8, Math.min(28, 6 + Math.sqrt(buildingCount) * (isCapital ? 3.2 : 2.2)));
-  const center: [number, number] = [burg.x, burg.y];
-  const arterialRoads = [
-    {
-      id: `${burg.i}-main-west-east`,
-      type: "arterial",
-      orientation: "horizontal",
-      points: [
-        roundPoint([center[0] - radius, center[1]]),
-        roundPoint([center[0] + radius, center[1]])
-      ]
-    }
-  ];
-  const secondaryRoads = [];
-  if (buildingCount > 5) {
-    secondaryRoads.push({
-      id: `${burg.i}-secondary-north-south`,
-      type: "secondary",
-      orientation: "vertical",
-      points: [
-        roundPoint([center[0], center[1] - radius * 0.55]),
-        roundPoint([center[0], center[1] + radius * 0.55])
-      ]
-    });
-  }
-  if (buildingCount > 12) {
-    secondaryRoads.push({
-      id: `${burg.i}-secondary-inner-east`,
-      type: "secondary",
-      orientation: "horizontal",
-      points: [
-        roundPoint([center[0] - radius * 0.45, center[1] + radius * 0.35]),
-        roundPoint([center[0] + radius * 0.45, center[1] + radius * 0.35])
-      ]
-    });
-  }
-
-  const wallRadiusX = radius * 1.12;
-  const wallRadiusY = radius * 0.82;
-  const defensiveWall = burg.walls || burg.capital || population > 180 ? getWallBoundary(center, wallRadiusX, wallRadiusY) : [];
-
-  return {
-    arterial_roads: arterialRoads,
-    secondary_roads: secondaryRoads,
-    defensive_wall_boundary: defensiveWall,
-    buildings: createBuildingFootprints(burg.i, center, buildingCount, radius, rand)
-  };
-}
-
-function createBuildingFootprints(
-  burgId: number,
-  center: [number, number],
-  count: number,
-  radius: number,
-  rand: () => number
-) {
-  const districts = ["residential", "residential", "craft", "market", "civic", "temple"];
-  return Array.from({ length: count }, (_, index) => {
-    const row = index % 2 === 0 ? -1 : 1;
-    const lane = Math.floor(index / 2);
-    const maxLane = Math.max(1, Math.ceil(count / 2) - 1);
-    const xOffset = maxLane ? (lane / maxLane - 0.5) * radius * 1.55 : 0;
-    const yOffset = row * (3.6 + rand() * 3.6);
-    const width = rn(3 + rand() * 3.5, 1);
-    const length = rn(3.5 + rand() * 4.5, 1);
-    const district = districts[Math.floor(rand() * districts.length)];
-    const stories = district === "civic" || district === "temple" ? 2 : rand() > 0.82 ? 2 : 1;
-
-    return {
-      id: `${burgId}-building-${String(index + 1).padStart(3, "0")}`,
-      coordinate_center: roundPoint([center[0] + xOffset, center[1] + yOffset]),
-      width,
-      length,
-      height_stories: stories,
-      district_type: district
-    };
-  });
-}
-
-function getWallBoundary(center: [number, number], radiusX: number, radiusY: number) {
-  return [
-    roundPoint([center[0] - radiusX, center[1] - radiusY]),
-    roundPoint([center[0] + radiusX, center[1] - radiusY]),
-    roundPoint([center[0] + radiusX, center[1] + radiusY]),
-    roundPoint([center[0] - radiusX, center[1] + radiusY]),
-    roundPoint([center[0] - radiusX, center[1] - radiusY])
-  ];
-}
-
-function createSeededRandom(value: string): () => number {
-  let state = 2166136261;
-  for (let i = 0; i < value.length; i++) {
-    state ^= value.charCodeAt(i);
-    state = Math.imul(state, 16777619);
-  }
-  return () => {
-    state += 0x6d2b79f5;
-    let next = state;
-    next = Math.imul(next ^ (next >>> 15), next | 1);
-    next ^= next + Math.imul(next ^ (next >>> 7), next | 61);
-    return ((next ^ (next >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 function roundPoint(point: [number, number]): [number, number] {

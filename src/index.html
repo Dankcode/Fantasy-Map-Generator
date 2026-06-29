@@ -1603,12 +1603,12 @@
                   type="range"
                   min="1"
                   max="13"
-                  value="1"
-                  data-cells="1000"
+                  value="4"
+                  data-cells="10000"
                 />
               </td>
               <td>
-                <output id="pointsOutputFormatted" style="color: #dfdf12">1K</output>
+                <output id="pointsOutputFormatted" style="color: #053305">10K</output>
               </td>
             </tr>
             <tr data-tip="Define map name (will be used to name downloaded files)">
@@ -1705,7 +1705,7 @@
               </td>
               <td>States number</td>
               <td colspan="2">
-                <slider-input id="statesNumber" data-stored="statesNumber" min="0" max="100" value="4"></slider-input>
+                <slider-input id="statesNumber" data-stored="statesNumber" min="0" max="100" value="30"></slider-input>
               </td>
             </tr>
             <tr
@@ -1716,7 +1716,7 @@
               </td>
               <td>Provinces ratio</td>
               <td colspan="2">
-                <slider-input id="provincesRatio" data-stored="provincesRatio" min="0" max="100"></slider-input>
+                <slider-input id="provincesRatio" data-stored="provincesRatio" min="0" max="100" value="50"></slider-input>
               </td>
             </tr>
             <tr data-tip="Define how much states and cultures can vary in size. Defines expansionism value">
@@ -1743,10 +1743,10 @@
               </td>
               <td>Burgs number</td>
               <td>
-                <input id="manorsInput" data-stored="manors" type="range" min="0" max="1000" step="1" value="24" />
+                <input id="manorsInput" data-stored="manors" type="range" min="0" max="1000" step="1" value="30" />
               </td>
               <td>
-                <output id="manorsOutput" data-stored="manors" value="24">24</output>
+                <input id="manorsOutput" data-stored="manors" type="number" min="0" max="1000" step="1" value="30" />
               </td>
             </tr>
             <tr
@@ -1852,7 +1852,7 @@
               <td>
                 <select id="onloadBehavior" data-stored="onloadBehavior">
                   <option value="random" selected>Generate random map</option>
-                  <option value="lastSaved">Open last saved map</option>
+                  <option value="lastSaved">Open previous map</option>
                 </select>
               </td>
               <td></td>
@@ -2447,6 +2447,7 @@
           </ul>
         </div>
         <div id="sticked">
+          <button id="updateMapButton" data-tip="Update the map using current options and seed">Update Map</button>
           <button id="newMapButton" data-tip="Generate a new map based on options" data-shortcut="F2">New Map</button>
           <button id="exportButton" data-tip="Select format to download image or export map data">Export</button>
           <button id="saveButton" data-tip="Save fully-functional map file">Save</button>
@@ -6160,18 +6161,18 @@
         <div>
           <button
             onclick="window.lazy.exportMap().then(m => m.exportGameMapFiles())"
-            data-tip="Download two files: a ZIP with SVG and PNG map renders, plus game topology JSON"
+            data-tip="Download one ZIP with the PNG render, SVG render, and vibe-game JSON"
           >
             map images + JSON
           </button>
           <button
             onclick="window.lazy.exportMap().then(m => m.exportGameTopologyJson())"
-            data-tip="Download voxel-ready JSON with land matrix, burgs, roads, walls, and buildings"
+            data-tip="Download vibe-game JSON with map cells, burgs, roads, rivers, walls, and buildings"
           >
             game JSON
           </button>
         </div>
-        <p>Game export downloads a map image bundle and a lightweight topology JSON for voxel reconstruction.</p>
+        <p>Game export downloads a PNG-backed JSON package for recreating this map in vibe-game.</p>
         <div style="margin: 1em 0 0.3em; font-weight: bold">Advanced image export</div>
         <div>
           <button
@@ -8967,7 +8968,7 @@
       </defs>
     </svg>
     <script src="components/fill-box.js"></script>
-    <script src="components/slider-input.js"></script>
+    <script src="components/slider-input.js?v=1.130.1"></script>
     <script src="libs/jquery-3.1.1.min.js"></script>
     <script src="libs/jquery-ui.min.js"></script>
     <script src="versioning.js"></script>
@@ -8990,11 +8991,11 @@
     <script defer src="modules/ui/measurers.js?v=1.99.00"></script>
     <script defer src="modules/ui/style-presets.js?v=1.127.0"></script>
     <script defer src="modules/ui/general.js?v=1.129.0"></script>
-    <script defer src="modules/ui/options.js?v=1.129.0"></script>
-    <script defer src="main.js?v=1.129.0"></script>
+    <script defer src="modules/ui/options.js?v=1.130.1"></script>
+    <script defer src="main.js?v=1.130.1"></script>
     <script defer src="modules/ui/style.js?v=1.127.0"></script>
     <script defer src="modules/ui/editors.js?v=1.130.0"></script>
-    <script defer src="modules/ui/tools.js?v=1.130.0"></script>
+    <script defer src="modules/ui/tools.js?v=1.130.1"></script>
     <script defer src="modules/ui/world-configurator.js?v=1.129.0"></script>
     <script defer src="modules/ui/heightmap-editor.js?v=1.129.0"></script>
     <script defer src="modules/ui/provinces-editor.js?v=1.122.11"></script>

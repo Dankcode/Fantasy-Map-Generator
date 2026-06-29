@@ -29,6 +29,7 @@
       const number = this.querySelector("input[type=number]");
 
       range.value = number.value = this.value || this.getAttribute("value") || 50;
+      this.value = range.value;
       range.min = number.min = this.getAttribute("min") || 0;
       range.max = number.max = this.getAttribute("max") || 100;
       range.step = number.step = this.getAttribute("step") || 1;
@@ -61,15 +62,18 @@
       const range = this.querySelector("input[type=range]");
       const number = this.querySelector("input[type=number]");
       range.value = number.value = value;
+      this.setAttribute("value", value);
     }
 
     get value() {
       const number = this.querySelector("input[type=number]");
+      if (!number) return this.getAttribute("value") || "";
       return number.value;
     }
 
     get valueAsNumber() {
       const number = this.querySelector("input[type=number]");
+      if (!number) return Number(this.getAttribute("value"));
       return number.valueAsNumber;
     }
   }
