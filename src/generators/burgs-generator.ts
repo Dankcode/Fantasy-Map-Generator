@@ -106,6 +106,8 @@ class BurgModule {
       const sorted = populatedCells.sort((a, b) => score[b] - score[a]);
 
       const burgsNumber = getTownsNumber();
+      if (burgsNumber <= 0) return;
+
       let spacing = (graphWidth + graphHeight) / 150 / (burgsNumber ** 0.7 / 66); // min distance between town
 
       for (let added = 0; added < burgsNumber && spacing > 1; ) {
@@ -163,10 +165,16 @@ class BurgModule {
 
     function getTownsNumber() {
       const manorsInput = ensureEl("manorsInput") as HTMLInputElement;
-      const isAuto = manorsInput.value === "1000"; // '1000' is considered as auto
-      if (isAuto) return Math.max(8, rn(populatedCells.length / 10 / (grid.points.length / 10000) ** 0.8));
+      const manorsOutput = ensureEl("manorsOutput") as HTMLInputElement;
+      const requestedTotal = Number.isFinite(manorsInput.valueAsNumber)
+        ? manorsInput.valueAsNumber
+        : Number.isFinite(manorsOutput.valueAsNumber)
+          ? manorsOutput.valueAsNumber
+          : 0;
+      const existingCapitals = burgs.length - 1;
+      const townsToAdd = Math.max(0, requestedTotal - existingCapitals);
 
-      return Math.min(manorsInput.valueAsNumber, populatedCells.length);
+      return Math.min(townsToAdd, populatedCells.length);
     }
   }
 

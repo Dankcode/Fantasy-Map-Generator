@@ -5,6 +5,14 @@ import { createVibeGameTownLayout } from "./vibe-game-town-generator";
 
 type MapSelection = Selection<SVGSVGElement, unknown, null, undefined>;
 
+type VibeGameTownPackageFile = { path: string; data: ReturnType<typeof createVibeGameTownLayout> };
+
+interface VibeGameMapDataOptions {
+  pngFileName?: string;
+  splitTowns?: boolean;
+  townFiles?: VibeGameTownPackageFile[];
+}
+
 // project canvas coordinates to geographic [lon, lat], rounded to 4 decimals
 const toGeoCoordinates = (x: number, y: number) => getCoordinates(x, y, mapCoordinates, graphWidth, graphHeight, 4);
 
@@ -102,16 +110,29 @@ export async function exportGameMapImages(): Promise<void> {
   }
 }
 
-export function exportGameTopologyJson(): void {
+export async function exportGameTopologyJson(): Promise<void> {
   if (customization) {
     tip("Game data cannot be exported when edit mode is active, please exit the mode and retry", false, "error");
     return;
   }
 
-  const baseName = getFileName("vibe-game-map");
-  const json = JSON.stringify(getVibeGameMapData());
-  downloadFile(json, `${baseName}.json`, "application/json");
-  tip("vibe-game map JSON is saved", true, "success", 7000);
+  TIME && console.time("exportGameTopologyJson");
+  try {
+    await loadScript("libs/jszip.min.js");
+    const zip = new window.JSZip();
+    const baseName = getFileName("vibe-game-map");
+
+    addVibeGameDataToZip(zip);
+
+    const archive = await generateZipBlob(zip);
+    downloadBlob(archive, `${baseName}-data.zip`);
+    tip(`${baseName}-data.zip is saved. It contains compressed vibe-game data`, true, "success", 7000);
+  } catch (error) {
+    ERROR && console.error(error);
+    tip(`vibe-game data export failed: ${(error as Error)?.message || "Unknown error"}`, true, "error", 5000);
+  } finally {
+    TIME && console.timeEnd("exportGameTopologyJson");
+  }
 }
 
 export async function exportGameMapFiles(): Promise<void> {
@@ -126,15 +147,15 @@ export async function exportGameMapFiles(): Promise<void> {
     const zip = new window.JSZip();
     const baseName = getFileName("vibe-game-map");
     const [svgBlob, pngBlob] = await Promise.all([getSvgBlob(), getPngBlob(true)]);
-    const json = JSON.stringify(getVibeGameMapData(`${baseName}.png`));
+    const pngFileName = `${baseName}.png`;
 
     zip.file(`${baseName}.svg`, svgBlob);
-    zip.file(`${baseName}.png`, pngBlob);
-    zip.file(`${baseName}.json`, json);
+    zip.file(pngFileName, pngBlob);
+    addVibeGameDataToZip(zip, pngFileName);
 
-    const archive = await zip.generateAsync({ type: "blob" });
+    const archive = await generateZipBlob(zip);
     downloadBlob(archive, `${baseName}.zip`);
-    tip(`${baseName}.zip is saved. It contains the PNG map render and vibe-game JSON`, true, "success", 7000);
+    tip(`${baseName}.zip is saved. It contains images and compressed vibe-game data`, true, "success", 7000);
   } catch (error) {
     ERROR && console.error(error);
     tip(`vibe-game export failed: ${(error as Error)?.message || "Unknown error"}`, true, "error", 5000);
@@ -218,6 +239,79 @@ function downloadBlob(blob: Blob, fileName: string): void {
   window.setTimeout(() => window.URL.revokeObjectURL(link.href), 5000);
 }
 
+function generateZipBlob(zip: InstanceType<typeof window.JSZip>): Promise<Blob> {
+  return zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 9 } });
+}
+
+function addVibeGameDataToZip(zip: InstanceType<typeof window.JSZip>, pngFileName?: string): void {
+  const townFiles: VibeGameTownPackageFile[] = [];
+  const world = getVibeGameMapData({ pngFileName, splitTowns: true, townFiles });
+  const manifest = createVibeGameManifest(world, townFiles, pngFileName);
+
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+  zip.file("world.json", JSON.stringify(world));
+
+  for (const townFile of townFiles) {
+    zip.file(townFile.path, JSON.stringify(townFile.data));
+  }
+}
+
+function createVibeGameManifest(
+  world: ReturnType<typeof getVibeGameMapData>,
+  townFiles: VibeGameTownPackageFile[],
+  pngFileName?: string
+) {
+  const townCounts = world.entities.burgs.reduce(
+    (counts, burg) => {
+      counts.building_floors += burg.town_summary.floors;
+      counts.building_rooms += burg.town_summary.rooms;
+      return counts;
+    },
+    { building_floors: 0, building_rooms: 0 }
+  );
+
+  return {
+    schema: "vibe-game-map-package",
+    schema_version: 1,
+    source: world.metadata.source,
+    exported_at: world.metadata.exported_at,
+    map_name: world.metadata.map_name,
+    seed: world.metadata.seed,
+    files: {
+      world: "world.json",
+      image: pngFileName || null,
+      towns_directory: "towns/",
+      towns: townFiles.map(file => file.path)
+    },
+    burgs: world.entities.burgs.map(burg => ({
+      id: burg.id,
+      name: burg.name,
+      state: burg.state,
+      culture: burg.culture,
+      cell: burg.cell,
+      town_file: "town_file" in burg ? burg.town_file : burg.town_summary.file,
+      population: burg.population,
+      capital: burg.flags.capital
+    })),
+    counts: {
+      cells: world.world.cells.length,
+      burgs: world.entities.burgs.length,
+      states: world.entities.states.length,
+      provinces: world.entities.provinces.length,
+      routes: world.world.routes.length,
+      rivers: world.world.rivers.length,
+      towns: townFiles.length,
+      building_floors: townCounts.building_floors,
+      building_rooms: townCounts.building_rooms
+    },
+    loading: {
+      entrypoint: "Read manifest.json, then world.json. Load towns/*.json lazily by burg.town_file.",
+      coordinate_space: "fmg-svg-pixels",
+      compression: "zip-deflate"
+    }
+  };
+}
+
 function loadImageElement(img: HTMLImageElement): Promise<void> {
   return new Promise((resolve, reject) => {
     img.onload = () => resolve();
@@ -238,7 +332,8 @@ function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, qualityArgume
   });
 }
 
-function getVibeGameMapData(pngFileName?: string) {
+function getVibeGameMapData(options: string | VibeGameMapDataOptions = {}) {
+  const exportOptions = typeof options === "string" ? { pngFileName: options } : options;
   const peoplePerPoint = populationRate * urbanization;
   const cells = Array.from(pack.cells.i).map(cellId => {
     const height = pack.cells.h[cellId];
@@ -286,10 +381,14 @@ function getVibeGameMapData(pngFileName?: string) {
         max_standard_town_population: 120,
         max_capital_population: 300,
         street_bias: "horizontal-main"
+      },
+      package_layout: {
+        split_towns: Boolean(exportOptions.splitTowns),
+        town_reference_field: exportOptions.splitTowns ? "entities.burgs[].town_file" : null
       }
     },
     image: {
-      file: pngFileName || null,
+      file: exportOptions.pngFileName || null,
       coordinate_space: "fmg-svg-pixels",
       width: graphWidth,
       height: graphHeight
@@ -317,7 +416,9 @@ function getVibeGameMapData(pngFileName?: string) {
       }))
     },
     entities: {
-      burgs: pack.burgs.filter(burg => burg.i && !burg.removed).map(burg => createGameBurgNode(burg, peoplePerPoint)),
+      burgs: pack.burgs
+        .filter(burg => burg.i && !burg.removed)
+        .map(burg => createGameBurgNode(burg, peoplePerPoint, exportOptions)),
       states: pack.states
         .filter(state => state.i && !state.removed)
         .map(state => ({
@@ -394,7 +495,11 @@ function createGameRoute(route: (typeof pack.routes)[number]) {
   };
 }
 
-function createGameBurgNode(burg: (typeof pack.burgs)[number], peoplePerPoint: number) {
+function createGameBurgNode(
+  burg: (typeof pack.burgs)[number],
+  peoplePerPoint: number,
+  exportOptions: VibeGameMapDataOptions = {}
+) {
   const population = getGamePopulation(burg, peoplePerPoint);
   const town = createVibeGameTownLayout({
     burgId: burg.i,
@@ -410,8 +515,13 @@ function createGameBurgNode(burg: (typeof pack.burgs)[number], peoplePerPoint: n
     plaza: Boolean(burg.plaza),
     connections: getBurgTownConnections(burg)
   });
+  const buildingFloors = town.buildings.reduce((total, building) => total + building.floors.length, 0);
+  const buildingRooms = town.buildings.reduce(
+    (total, building) => total + building.floors.reduce((rooms, floor) => rooms + floor.rooms.length, 0),
+    0
+  );
 
-  return {
+  const node = {
     id: burg.i,
     name: burg.name,
     group: burg.group,
@@ -423,13 +533,19 @@ function createGameBurgNode(burg: (typeof pack.burgs)[number], peoplePerPoint: n
     geo_coordinate: toGeoCoordinates(burg.x, burg.y),
     population,
     original_population_points: rn(Number(burg.population || 0), 3),
-    town,
-    infrastructure: town,
-    buildings: town.buildings,
-    streets: town.streets,
-    walls: town.walls,
-    farms: town.farms,
-    doodads: town.doodads,
+    town_summary: {
+      file: `towns/burg-${burg.i}.json`,
+      grid: town.grid,
+      biome: town.biome,
+      density: town.density,
+      buildings: town.buildings.length,
+      floors: buildingFloors,
+      rooms: buildingRooms,
+      streets: town.streets.length,
+      walls: town.walls.length,
+      farms: town.farms.length,
+      doodads: town.doodads.length
+    },
     flags: {
       capital: Boolean(burg.capital),
       port: Boolean(burg.port),
@@ -439,6 +555,14 @@ function createGameBurgNode(burg: (typeof pack.burgs)[number], peoplePerPoint: n
       temple: Boolean(burg.temple)
     }
   };
+
+  if (exportOptions.splitTowns) {
+    const path = `towns/burg-${burg.i}.json`;
+    exportOptions.townFiles?.push({ path, data: town });
+    return { ...node, town_file: path };
+  }
+
+  return { ...node, town };
 }
 
 function getBurgTownConnections(burg: (typeof pack.burgs)[number]) {

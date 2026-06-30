@@ -1737,16 +1737,18 @@
                 <slider-input id="growthRate" data-stored="growthRate" min=".1" max="2" step=".1"></slider-input>
               </td>
             </tr>
-            <tr data-tip="Define a number of non-capital settlements to be placed (if enough suitable land exists)">
+            <tr
+              data-tip="Define the total number of burgs to be placed, including state capitals (if enough suitable land exists)"
+            >
               <td>
                 <i data-locked="0" id="lock_manors" class="icon-lock-open"></i>
               </td>
-              <td>Burgs number</td>
+              <td>Total burgs</td>
               <td>
-                <input id="manorsInput" data-stored="manors" type="range" min="0" max="1000" step="1" value="30" />
+                <input id="manorsInput" data-stored="manors" type="range" min="0" max="1000" step="1" value="60" />
               </td>
               <td>
-                <input id="manorsOutput" data-stored="manors" type="number" min="0" max="1000" step="1" value="30" />
+                <input id="manorsOutput" data-stored="manors" type="number" min="0" max="1000" step="1" value="60" />
               </td>
             </tr>
             <tr
@@ -6161,18 +6163,18 @@
         <div>
           <button
             onclick="window.lazy.exportMap().then(m => m.exportGameMapFiles())"
-            data-tip="Download one ZIP with the PNG render, SVG render, and vibe-game JSON"
+            data-tip="Download one compressed ZIP with renders, manifest, world data, and separate town files"
           >
-            map images + JSON
+            map images + data ZIP
           </button>
           <button
             onclick="window.lazy.exportMap().then(m => m.exportGameTopologyJson())"
-            data-tip="Download vibe-game JSON with map cells, burgs, roads, rivers, walls, and buildings"
+            data-tip="Download a compressed vibe-game data ZIP with manifest, world data, and separate town files"
           >
-            game JSON
+            game data ZIP
           </button>
         </div>
-        <p>Game export downloads a PNG-backed JSON package for recreating this map in vibe-game.</p>
+        <p>Game export downloads compressed packages. Open manifest.json first; the voxel game can load town files on demand.</p>
         <div style="margin: 1em 0 0.3em; font-weight: bold">Advanced image export</div>
         <div>
           <button

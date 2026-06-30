@@ -108,7 +108,7 @@ function storeValueIfRequired(ev) {
 
 function updateOutputToFollowInput(ev) {
   const id = ev.target.id;
-  const value = ev.target.value;
+  const value = getEventValue(ev);
 
   // specific cases
   if (id === "manorsInput") return (manorsOutput.value = value);
@@ -123,11 +123,16 @@ function updateOutputToFollowInput(ev) {
   }
 }
 
+function getEventValue(ev) {
+  return ev.detail?.value ?? ev.target.value;
+}
+
 // Option listeners
 const optionsContent = ensureEl("optionsContent");
 
 optionsContent.addEventListener("input", event => {
-  const { id, value } = event.target;
+  const { id } = event.target;
+  const value = getEventValue(event);
   if (id === "mapWidthInput" || id === "mapHeightInput") mapSizeInputChange();
   else if (id === "pointsInput") changeCellsDensity(+value);
   else if (id === "culturesSet") changeCultureSet();
@@ -140,7 +145,8 @@ optionsContent.addEventListener("input", event => {
 });
 
 optionsContent.addEventListener("change", event => {
-  const { id, value } = event.target;
+  const { id } = event.target;
+  const value = getEventValue(event);
   if (id === "zoomExtentMin" || id === "zoomExtentMax") changeZoomExtent(value);
   else if (id === "optionsSeed") generateMapWithSeed("seed change");
   else if (id === "uiSize") changeUiSize(+value);
@@ -347,7 +353,7 @@ const defaultGenerationOptions = {
   template: "pangea",
   states: 30,
   provincesRatio: 50,
-  burgs: 30
+  totalBurgs: 60
 };
 
 function changeCellsDensity(value) {
@@ -619,12 +625,12 @@ function randomizeOptions() {
   if (randomize || !locked("statesNumber")) setSliderInputValue("statesNumber", defaultGenerationOptions.states);
   if (randomize || !locked("provincesRatio")) setSliderInputValue("provincesRatio", defaultGenerationOptions.provincesRatio);
   if (randomize || !locked("manors")) {
-    manorsInput.value = defaultGenerationOptions.burgs;
-    manorsOutput.value = String(defaultGenerationOptions.burgs);
+    manorsInput.value = defaultGenerationOptions.totalBurgs;
+    manorsOutput.value = String(defaultGenerationOptions.totalBurgs);
   }
-  if (randomize || !locked("religionsNumber")) religionsNumber.value = gauss(6, 3, 2, 10);
-  if (randomize || !locked("sizeVariety")) sizeVariety.value = gauss(4, 2, 0, 10, 1);
-  if (randomize || !locked("growthRate")) growthRate.value = rn(1 + Math.random(), 1);
+  if (randomize || !locked("religionsNumber")) setSliderInputValue("religionsNumber", gauss(6, 3, 2, 10));
+  if (randomize || !locked("sizeVariety")) setSliderInputValue("sizeVariety", gauss(4, 2, 0, 10, 1));
+  if (randomize || !locked("growthRate")) setSliderInputValue("growthRate", rn(1 + Math.random(), 1));
   if (randomize || !locked("cultures")) culturesInput.value = culturesOutput.value = gauss(12, 3, 5, 30);
   if (randomize || !locked("culturesSet")) randomizeCultureSet();
 

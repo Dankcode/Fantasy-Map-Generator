@@ -77,6 +77,24 @@ type BiomeType =
 type TownDensity = "VERY_SPARSE" | "SPARSE" | "MEDIUM" | "HIGH" | "EXTREME";
 type RoofStyle = "THATCHED" | "TILED" | "SLATE" | "METAL";
 type WallTexture = "TIMBER_FRAME" | "STONE" | "STUCCO" | "WOOD";
+type RoomType =
+  | "ENTRY"
+  | "COMMON"
+  | "BEDROOM"
+  | "KITCHEN"
+  | "STORAGE"
+  | "SHOP"
+  | "WORKSHOP"
+  | "FORGE"
+  | "TAPROOM"
+  | "GUEST_ROOM"
+  | "SANCTUARY"
+  | "CHANCEL"
+  | "TOWER_ROOM"
+  | "MANOR_HALL"
+  | "STUDY"
+  | "FARM_ROOM"
+  | "STAIRS";
 
 interface Tile {
   x: number;
@@ -200,6 +218,49 @@ interface VibeGameTownBuilding {
   roof_color: string;
   roof_style: RoofStyle;
   wall_texture: WallTexture;
+  interior: VibeGameBuildingInterior;
+  floors: VibeGameBuildingFloor[];
+}
+
+interface VibeGameBuildingInterior {
+  floor_count: number;
+  floor_height_voxels: number;
+  wall_height_voxels: number;
+  has_stairs: boolean;
+}
+
+interface VibeGameBuildingFloor {
+  level: number;
+  elevation_voxels: number;
+  rooms: VibeGameBuildingRoom[];
+  stairs?: VibeGameBuildingStairs;
+}
+
+interface VibeGameBuildingRoom {
+  id: string;
+  type: RoomType;
+  name: string;
+  floor: number;
+  grid_rect: { x: number; y: number; width: number; height: number };
+  coordinate_center: [number, number];
+  footprint: [number, number][];
+  tiles: [number, number][];
+  doors: VibeGameBuildingDoor[];
+}
+
+interface VibeGameBuildingDoor {
+  id: string;
+  kind: "exterior" | "interior" | "stairs";
+  grid: [number, number];
+  coordinate: [number, number];
+  connects_to?: string;
+}
+
+interface VibeGameBuildingStairs {
+  id: string;
+  grid: [number, number];
+  coordinate: [number, number];
+  connects_to_level: number | null;
 }
 
 interface VibeGameTownDoodad {
@@ -473,7 +534,7 @@ export function createVibeGameTownLayout(options: VibeGameTownOptions): VibeGame
     connections: town.connections,
     tiles,
     streets: getStreetTiles(town, origin, tileSize),
-    buildings: town.buildings.map(building => getBuildingLayout(building, origin, tileSize)),
+    buildings: town.buildings.map(building => getBuildingLayout(building, origin, tileSize, town.seed)),
     walls: tiles.filter(tile => tile.type === "WALL"),
     farms: tiles.filter(tile => tile.type === "FARM"),
     doodads: getDoodads(town, origin, tileSize)
@@ -1375,12 +1436,18 @@ function getTileLayout(tile: Tile, origin: [number, number], tileSize: number): 
   };
 }
 
-function getBuildingLayout(building: Building, origin: [number, number], tileSize: number): VibeGameTownBuilding {
+function getBuildingLayout(
+  building: Building,
+  origin: [number, number],
+  tileSize: number,
+  townSeed: number
+): VibeGameTownBuilding {
   const x1 = building.x;
   const y1 = building.y;
   const x2 = building.x + building.width;
   const y2 = building.y + building.height;
   const doorGrid: [number, number] = [building.x + building.doorX, building.y + building.doorY];
+  const floors = getBuildingFloors(building, origin, tileSize, townSeed);
   return {
     id: building.id,
     type: building.type,
@@ -1400,8 +1467,305 @@ function getBuildingLayout(building: Building, origin: [number, number], tileSiz
     color: building.color,
     roof_color: building.roofColor,
     roof_style: building.roofStyle,
-    wall_texture: building.wallTexture
+    wall_texture: building.wallTexture,
+    interior: {
+      floor_count: floors.length,
+      floor_height_voxels: 4,
+      wall_height_voxels: 3,
+      has_stairs: floors.length > 1
+    },
+    floors
   };
+}
+
+function getBuildingFloors(
+  building: Building,
+  origin: [number, number],
+  tileSize: number,
+  townSeed: number
+): VibeGameBuildingFloor[] {
+  const floorCount = getBuildingFloorCount(building, townSeed);
+  const stairsGrid = floorCount > 1 ? getStairsGrid(building) : null;
+  const floors: VibeGameBuildingFloor[] = [];
+
+  for (let level = 0; level < floorCount; level++) {
+    const rooms = getBuildingRooms(building, level, origin, tileSize, townSeed, stairsGrid);
+    const floor: VibeGameBuildingFloor = {
+      level,
+      elevation_voxels: level * 4,
+      rooms
+    };
+
+    if (stairsGrid) {
+      floor.stairs = {
+        id: `${building.id}_stairs_${level}`,
+        grid: stairsGrid,
+        coordinate: gridToMap(stairsGrid[0] + 0.5, stairsGrid[1] + 0.5, origin, tileSize),
+        connects_to_level: level + 1 < floorCount ? level + 1 : level > 0 ? level - 1 : null
+      };
+    }
+
+    floors.push(floor);
+  }
+
+  return floors;
+}
+
+function getBuildingFloorCount(building: Building, townSeed: number): number {
+  const rng = new RNG(hashSeed(`${townSeed}:${building.id}:floors`));
+  const area = building.width * building.height;
+
+  if (building.type === "TOWER") return area >= 6 ? rng.rangeInt(3, 4) : 3;
+  if (building.type === "MANOR") return 2;
+  if (building.type === "CHURCH" || building.type === "MARKET_STALL" || building.type === "FARM_HOUSE") return 1;
+  if (building.type === "TAVERN") return area >= 9 || rng.chance(0.6) ? 2 : 1;
+  if (building.type === "HOUSE_LARGE") return area >= 9 || rng.chance(0.45) ? 2 : 1;
+  if (building.type === "BLACKSMITH") return rng.chance(0.35) ? 2 : 1;
+  return 1;
+}
+
+function getBuildingRooms(
+  building: Building,
+  floor: number,
+  origin: [number, number],
+  tileSize: number,
+  townSeed: number,
+  stairsGrid: [number, number] | null
+): VibeGameBuildingRoom[] {
+  const rng = new RNG(hashSeed(`${townSeed}:${building.id}:rooms:${floor}`));
+  const roomRects = partitionBuilding(building, floor, rng);
+  const roomTypes = getRoomTypes(building, floor, roomRects.length);
+  const rooms = roomRects.map((rect, index) => {
+    const type = roomTypes[index] || roomTypes[roomTypes.length - 1] || "COMMON";
+    return createRoomLayout(building, rect, type, floor, index, origin, tileSize, stairsGrid);
+  });
+
+  addInteriorDoors(rooms, origin, tileSize);
+  return rooms;
+}
+
+function partitionBuilding(
+  building: Building,
+  floor: number,
+  rng: RNG
+): { x: number; y: number; width: number; height: number }[] {
+  const rects = [{ x: building.x, y: building.y, width: building.width, height: building.height }];
+  const area = building.width * building.height;
+  const maxRooms = getMaxRooms(building, floor, area);
+
+  while (rects.length < maxRooms) {
+    const index = rects
+      .map((rect, i) => ({ rect, i, area: rect.width * rect.height }))
+      .sort((a, b) => b.area - a.area)[0].i;
+    const rect = rects[index];
+    const vertical = rect.width > rect.height || (rect.width === rect.height && rng.chance(0.5));
+    const split = splitRect(rect, vertical);
+    if (!split && vertical) {
+      const fallback = splitRect(rect, false);
+      if (!fallback) break;
+      rects.splice(index, 1, ...fallback);
+      continue;
+    }
+    if (!split) break;
+    rects.splice(index, 1, ...split);
+  }
+
+  return rects.sort((a, b) => a.y - b.y || a.x - b.x);
+}
+
+function getMaxRooms(building: Building, floor: number, area: number): number {
+  if (area <= 4 || building.type === "TOWER") return 1;
+  if (building.type === "MARKET_STALL") return area >= 6 ? 2 : 1;
+  if (building.type === "CHURCH") return area >= 9 ? 2 : 1;
+  if (floor > 0 && area >= 9) return 2;
+  if (area >= 12 && ["TAVERN", "MANOR", "BLACKSMITH"].includes(building.type)) return 3;
+  return area >= 8 ? 2 : 1;
+}
+
+function splitRect(
+  rect: { x: number; y: number; width: number; height: number },
+  vertical: boolean
+):
+  | [{ x: number; y: number; width: number; height: number }, { x: number; y: number; width: number; height: number }]
+  | null {
+  if (vertical) {
+    if (rect.width < 3) return null;
+    const width = Math.floor(rect.width / 2);
+    return [
+      { x: rect.x, y: rect.y, width, height: rect.height },
+      { x: rect.x + width, y: rect.y, width: rect.width - width, height: rect.height }
+    ];
+  }
+
+  if (rect.height < 3) return null;
+  const height = Math.floor(rect.height / 2);
+  return [
+    { x: rect.x, y: rect.y, width: rect.width, height },
+    { x: rect.x, y: rect.y + height, width: rect.width, height: rect.height - height }
+  ];
+}
+
+function getRoomTypes(building: Building, floor: number, roomCount: number): RoomType[] {
+  const firstFloorTypes: Record<BuildingType, RoomType[]> = {
+    HOUSE_SMALL: ["COMMON"],
+    HOUSE_LARGE: ["COMMON", "KITCHEN", "STORAGE"],
+    TAVERN: ["TAPROOM", "KITCHEN", "STORAGE"],
+    BLACKSMITH: ["FORGE", "WORKSHOP", "STORAGE"],
+    MARKET_STALL: ["SHOP", "STORAGE"],
+    CHURCH: ["SANCTUARY", "CHANCEL", "STORAGE"],
+    TOWER: ["TOWER_ROOM"],
+    MANOR: ["MANOR_HALL", "KITCHEN", "STORAGE"],
+    FARM_HOUSE: ["FARM_ROOM", "KITCHEN", "STORAGE"]
+  };
+  const upperFloorTypes: Record<BuildingType, RoomType[]> = {
+    HOUSE_SMALL: ["BEDROOM"],
+    HOUSE_LARGE: ["BEDROOM", "STUDY", "STORAGE"],
+    TAVERN: ["GUEST_ROOM", "BEDROOM", "STORAGE"],
+    BLACKSMITH: ["BEDROOM", "STORAGE"],
+    MARKET_STALL: ["STORAGE"],
+    CHURCH: ["STORAGE"],
+    TOWER: ["TOWER_ROOM"],
+    MANOR: ["BEDROOM", "STUDY", "STORAGE"],
+    FARM_HOUSE: ["BEDROOM", "STORAGE"]
+  };
+  const types = floor ? upperFloorTypes[building.type] : firstFloorTypes[building.type];
+  return Array.from({ length: roomCount }, (_, index) => types[index] || types[types.length - 1]);
+}
+
+function createRoomLayout(
+  building: Building,
+  rect: { x: number; y: number; width: number; height: number },
+  type: RoomType,
+  floor: number,
+  index: number,
+  origin: [number, number],
+  tileSize: number,
+  stairsGrid: [number, number] | null
+): VibeGameBuildingRoom {
+  const room: VibeGameBuildingRoom = {
+    id: `${building.id}_f${floor}_r${index}`,
+    type,
+    name: getRoomName(type),
+    floor,
+    grid_rect: rect,
+    coordinate_center: gridToMap(rect.x + rect.width / 2, rect.y + rect.height / 2, origin, tileSize),
+    footprint: getRectFootprint(rect, origin, tileSize),
+    tiles: getRoomTiles(rect),
+    doors: []
+  };
+
+  if (floor === 0 && containsGrid(rect, building.x + building.doorX, building.y + building.doorY)) {
+    const doorGrid: [number, number] = [building.x + building.doorX, building.y + building.doorY];
+    room.doors.push({
+      id: `${room.id}_door_exterior`,
+      kind: "exterior",
+      grid: doorGrid,
+      coordinate: gridToMap(doorGrid[0] + 0.5, doorGrid[1] + 0.5, origin, tileSize)
+    });
+  }
+
+  if (stairsGrid && containsGrid(rect, stairsGrid[0], stairsGrid[1])) {
+    room.doors.push({
+      id: `${room.id}_stairs`,
+      kind: "stairs",
+      grid: stairsGrid,
+      coordinate: gridToMap(stairsGrid[0] + 0.5, stairsGrid[1] + 0.5, origin, tileSize),
+      connects_to: `${building.id}_stairs_${floor}`
+    });
+  }
+
+  return room;
+}
+
+function addInteriorDoors(rooms: VibeGameBuildingRoom[], origin: [number, number], tileSize: number): void {
+  for (let i = 0; i < rooms.length; i++) {
+    for (let j = i + 1; j < rooms.length; j++) {
+      const doorGrid = getSharedDoorGrid(rooms[i].grid_rect, rooms[j].grid_rect);
+      if (!doorGrid) continue;
+      const doorA: VibeGameBuildingDoor = {
+        id: `${rooms[i].id}_door_${rooms[j].id}`,
+        kind: "interior",
+        grid: doorGrid,
+        coordinate: gridToMap(doorGrid[0] + 0.5, doorGrid[1] + 0.5, origin, tileSize),
+        connects_to: rooms[j].id
+      };
+      const doorB: VibeGameBuildingDoor = {
+        ...doorA,
+        id: `${rooms[j].id}_door_${rooms[i].id}`,
+        connects_to: rooms[i].id
+      };
+      rooms[i].doors.push(doorA);
+      rooms[j].doors.push(doorB);
+    }
+  }
+}
+
+function getSharedDoorGrid(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number }
+): [number, number] | null {
+  const aRight = a.x + a.width;
+  const bRight = b.x + b.width;
+  const aBottom = a.y + a.height;
+  const bBottom = b.y + b.height;
+
+  if (aRight === b.x || bRight === a.x) {
+    const y1 = Math.max(a.y, b.y);
+    const y2 = Math.min(aBottom, bBottom);
+    if (y1 >= y2) return null;
+    return [aRight === b.x ? b.x : a.x, Math.floor((y1 + y2 - 1) / 2)];
+  }
+
+  if (aBottom === b.y || bBottom === a.y) {
+    const x1 = Math.max(a.x, b.x);
+    const x2 = Math.min(aRight, bRight);
+    if (x1 >= x2) return null;
+    return [Math.floor((x1 + x2 - 1) / 2), aBottom === b.y ? b.y : a.y];
+  }
+
+  return null;
+}
+
+function getStairsGrid(building: Building): [number, number] {
+  const x = Math.min(building.x + building.width - 1, Math.max(building.x, building.x + building.doorX));
+  const y = Math.min(building.y + building.height - 1, Math.max(building.y, building.y + building.doorY));
+  return [x, y];
+}
+
+function getRoomTiles(rect: { x: number; y: number; width: number; height: number }): [number, number][] {
+  const tiles: [number, number][] = [];
+  for (let x = rect.x; x < rect.x + rect.width; x++) {
+    for (let y = rect.y; y < rect.y + rect.height; y++) tiles.push([x, y]);
+  }
+  return tiles;
+}
+
+function getRectFootprint(
+  rect: { x: number; y: number; width: number; height: number },
+  origin: [number, number],
+  tileSize: number
+): [number, number][] {
+  const x2 = rect.x + rect.width;
+  const y2 = rect.y + rect.height;
+  return [
+    gridToMap(rect.x, rect.y, origin, tileSize),
+    gridToMap(x2, rect.y, origin, tileSize),
+    gridToMap(x2, y2, origin, tileSize),
+    gridToMap(rect.x, y2, origin, tileSize),
+    gridToMap(rect.x, rect.y, origin, tileSize)
+  ];
+}
+
+function containsGrid(rect: { x: number; y: number; width: number; height: number }, x: number, y: number): boolean {
+  return x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
+}
+
+function getRoomName(type: RoomType): string {
+  return type
+    .toLowerCase()
+    .split("_")
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function getDoodads(town: TownMap, origin: [number, number], tileSize: number): VibeGameTownDoodad[] {
