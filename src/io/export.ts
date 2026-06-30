@@ -6,6 +6,12 @@ import { createVibeGameTownLayout } from "./vibe-game-town-generator";
 type MapSelection = Selection<SVGSVGElement, unknown, null, undefined>;
 
 type VibeGameTownPackageFile = { path: string; data: ReturnType<typeof createVibeGameTownLayout> };
+type VibeGameExportProgressUpdate = {
+  percent: number;
+  label: string;
+  detail?: string;
+};
+type VibeGameExportProgressReporter = (update: VibeGameExportProgressUpdate) => void;
 
 interface VibeGameMapDataOptions {
   pngFileName?: string;
@@ -117,20 +123,34 @@ export async function exportGameTopologyJson(): Promise<void> {
   }
 
   TIME && console.time("exportGameTopologyJson");
+  const progress = startVibeGameExportProgress("Preparing game data export");
   try {
+    progress({ percent: 5, label: "Loading ZIP compressor" });
+    await waitForUiPaint();
     await loadScript("libs/jszip.min.js");
     const zip = new window.JSZip();
     const baseName = getFileName("vibe-game-map");
 
-    addVibeGameDataToZip(zip);
+    progress({ percent: 18, label: "Collecting world and town data", detail: "Generating burg town packages" });
+    await waitForUiPaint();
+    addVibeGameDataToZip(zip, undefined, progress);
 
-    const archive = await generateZipBlob(zip);
+    progress({ percent: 62, label: "Compressing game data", detail: "Starting ZIP compression" });
+    const archive = await generateZipBlob(zip, progress, 62, 35);
+    progress({ percent: 98, label: "Starting download", detail: `${baseName}-data.zip` });
     downloadBlob(archive, `${baseName}-data.zip`);
+    progress({ percent: 100, label: "Download ready", detail: `${baseName}-data.zip` });
     tip(`${baseName}-data.zip is saved. It contains compressed vibe-game data`, true, "success", 7000);
   } catch (error) {
     ERROR && console.error(error);
+    progress({
+      percent: 100,
+      label: "Export failed",
+      detail: (error as Error)?.message || "Unknown error"
+    });
     tip(`vibe-game data export failed: ${(error as Error)?.message || "Unknown error"}`, true, "error", 5000);
   } finally {
+    stopVibeGameExportProgress();
     TIME && console.timeEnd("exportGameTopologyJson");
   }
 }
@@ -142,24 +162,43 @@ export async function exportGameMapFiles(): Promise<void> {
   }
 
   TIME && console.time("exportGameMapFiles");
+  const progress = startVibeGameExportProgress("Preparing map images and game data");
   try {
+    progress({ percent: 4, label: "Loading ZIP compressor" });
+    await waitForUiPaint();
     await loadScript("libs/jszip.min.js");
     const zip = new window.JSZip();
     const baseName = getFileName("vibe-game-map");
+
+    progress({ percent: 12, label: "Rendering map images", detail: "Creating SVG and PNG renders" });
+    await waitForUiPaint();
     const [svgBlob, pngBlob] = await Promise.all([getSvgBlob(), getPngBlob(true)]);
     const pngFileName = `${baseName}.png`;
 
+    progress({ percent: 34, label: "Adding map images to ZIP", detail: "SVG and PNG ready" });
     zip.file(`${baseName}.svg`, svgBlob);
     zip.file(pngFileName, pngBlob);
-    addVibeGameDataToZip(zip, pngFileName);
 
-    const archive = await generateZipBlob(zip);
+    progress({ percent: 42, label: "Collecting world and town data", detail: "Generating burg town packages" });
+    await waitForUiPaint();
+    addVibeGameDataToZip(zip, pngFileName, progress);
+
+    progress({ percent: 68, label: "Compressing package", detail: "Starting ZIP compression" });
+    const archive = await generateZipBlob(zip, progress, 68, 29);
+    progress({ percent: 98, label: "Starting download", detail: `${baseName}.zip` });
     downloadBlob(archive, `${baseName}.zip`);
+    progress({ percent: 100, label: "Download ready", detail: `${baseName}.zip` });
     tip(`${baseName}.zip is saved. It contains images and compressed vibe-game data`, true, "success", 7000);
   } catch (error) {
     ERROR && console.error(error);
+    progress({
+      percent: 100,
+      label: "Export failed",
+      detail: (error as Error)?.message || "Unknown error"
+    });
     tip(`vibe-game export failed: ${(error as Error)?.message || "Unknown error"}`, true, "error", 5000);
   } finally {
+    stopVibeGameExportProgress();
     TIME && console.timeEnd("exportGameMapFiles");
   }
 }
@@ -239,21 +278,97 @@ function downloadBlob(blob: Blob, fileName: string): void {
   window.setTimeout(() => window.URL.revokeObjectURL(link.href), 5000);
 }
 
-function generateZipBlob(zip: InstanceType<typeof window.JSZip>): Promise<Blob> {
-  return zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 9 } });
+function generateZipBlob(
+  zip: InstanceType<typeof window.JSZip>,
+  progress?: VibeGameExportProgressReporter,
+  startPercent = 0,
+  rangePercent = 100
+): Promise<Blob> {
+  return zip.generateAsync(
+    { type: "blob", compression: "DEFLATE", compressionOptions: { level: 9 } },
+    (metadata: { percent?: number; currentFile?: string }) => {
+      const percent = startPercent + ((metadata.percent || 0) / 100) * rangePercent;
+      progress?.({
+        percent,
+        label: "Compressing ZIP",
+        detail: metadata.currentFile ? `Compressing ${metadata.currentFile}` : "Finalizing archive"
+      });
+    }
+  );
 }
 
-function addVibeGameDataToZip(zip: InstanceType<typeof window.JSZip>, pngFileName?: string): void {
+function addVibeGameDataToZip(
+  zip: InstanceType<typeof window.JSZip>,
+  pngFileName?: string,
+  progress?: VibeGameExportProgressReporter
+): void {
   const townFiles: VibeGameTownPackageFile[] = [];
   const world = getVibeGameMapData({ pngFileName, splitTowns: true, townFiles });
   const manifest = createVibeGameManifest(world, townFiles, pngFileName);
 
+  progress?.({
+    percent: pngFileName ? 55 : 35,
+    label: "Writing manifest and world data",
+    detail: `${townFiles.length} town files prepared`
+  });
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
   zip.file("world.json", JSON.stringify(world));
 
-  for (const townFile of townFiles) {
+  for (const [index, townFile] of townFiles.entries()) {
+    if (index === 0 || index === townFiles.length - 1 || index % 10 === 0) {
+      const fileProgress = townFiles.length ? index / townFiles.length : 1;
+      progress?.({
+        percent: (pngFileName ? 58 : 42) + fileProgress * (pngFileName ? 8 : 16),
+        label: "Adding town files",
+        detail: `${index + 1} of ${townFiles.length}: ${townFile.path}`
+      });
+    }
     zip.file(townFile.path, JSON.stringify(townFile.data));
   }
+}
+
+function startVibeGameExportProgress(initialLabel: string): VibeGameExportProgressReporter {
+  setVibeGameExportButtonsDisabled(true);
+  setVibeGameExportProgress({ percent: 0, label: initialLabel });
+  return update => setVibeGameExportProgress(update);
+}
+
+function stopVibeGameExportProgress(): void {
+  setVibeGameExportButtonsDisabled(false);
+  window.setTimeout(() => {
+    const progress = document.getElementById("vibeGameExportProgress");
+    progress?.classList.add("hidden");
+  }, 3500);
+}
+
+function setVibeGameExportButtonsDisabled(disabled: boolean): void {
+  for (const id of ["exportGameMapFilesButton", "exportGameTopologyJsonButton"]) {
+    const button = document.getElementById(id) as HTMLButtonElement | null;
+    if (button) button.disabled = disabled;
+  }
+}
+
+function setVibeGameExportProgress({ percent, label, detail = "" }: VibeGameExportProgressUpdate): void {
+  const boundedPercent = Math.max(0, Math.min(100, Math.round(percent)));
+  const progress = document.getElementById("vibeGameExportProgress");
+  const labelEl = document.getElementById("vibeGameExportProgressLabel");
+  const percentEl = document.getElementById("vibeGameExportProgressPercent");
+  const barEl = document.getElementById("vibeGameExportProgressBar") as HTMLElement | null;
+  const detailEl = document.getElementById("vibeGameExportProgressDetail");
+  const trackEl = progress?.querySelector<HTMLElement>(".export-progress__track");
+
+  progress?.classList.remove("hidden");
+  if (labelEl) labelEl.textContent = label;
+  if (percentEl) percentEl.textContent = `${boundedPercent}%`;
+  if (barEl) barEl.style.width = `${boundedPercent}%`;
+  if (detailEl) detailEl.textContent = detail;
+  if (trackEl) trackEl.setAttribute("aria-valuenow", String(boundedPercent));
+}
+
+function waitForUiPaint(): Promise<void> {
+  return new Promise(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
 }
 
 function createVibeGameManifest(

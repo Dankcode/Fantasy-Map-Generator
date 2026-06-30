@@ -474,9 +474,27 @@ function changeDialogsTheme(themeColor, transparency) {
     const color = d3.hsl(hue, saturation, lightness, alpha);
     return color.toString();
   };
+  const useLightPanelText = l < 0.52;
+  const panelText = useLightPanelText ? "#f8f4f6" : "#1f1a1d";
+  const panelMuted = useLightPanelText ? "#d8cfd5" : "#5f555b";
+  const panelStrong = useLightPanelText ? "#ffffff" : "#2b2026";
+  const panelControlBg = useLightPanelText ? "rgba(255, 255, 255, 0.12)" : "rgba(255, 255, 255, 0.92)";
+  const panelControlBorder = useLightPanelText ? "rgba(255, 255, 255, 0.32)" : "rgba(60, 48, 54, 0.32)";
 
   const theme = [
     { name: "--bg-opacity", value: alpha },
+    { name: "--dialog-text", value: "#1f1a1d" },
+    { name: "--dialog-muted", value: "#5f555b" },
+    { name: "--dialog-strong", value: "#2b2026" },
+    { name: "--dialog-control-bg", value: "rgba(255, 255, 255, 0.92)" },
+    { name: "--dialog-control-text", value: "#1f1a1d" },
+    { name: "--dialog-control-border", value: "rgba(60, 48, 54, 0.32)" },
+    { name: "--panel-text", value: panelText },
+    { name: "--panel-muted", value: panelMuted },
+    { name: "--panel-strong", value: panelStrong },
+    { name: "--panel-control-bg", value: panelControlBg },
+    { name: "--panel-control-text", value: panelText },
+    { name: "--panel-control-border", value: panelControlBorder },
     { name: "--bg-main", h, s, l, alpha },
     { name: "--bg-lighter", h, s, l: l + 0.02, alpha },
     { name: "--bg-light", h, s: s - 0.02, l: l + 0.06, alpha },

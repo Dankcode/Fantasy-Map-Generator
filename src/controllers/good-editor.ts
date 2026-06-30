@@ -52,7 +52,7 @@ export function goodEditor(editedGood?: Good, onUpdate?: () => void) {
       .ge-grid            { display:grid; grid-template-columns:9em minmax(0, 1fr); gap:.2em; align-items:center; }
       .ge-grid--top       { align-items:start; }
       .ge-grid > *        { min-width:0; }
-      .ge-grid > label    { color:#555; }
+      .ge-grid > label    { color:var(--dialog-muted); }
       .ge-field           { width:100%; }
       input.ge-num        { width:6em; }
       .ge-inline          { display:flex; align-items:center; gap:.4em; }
@@ -62,8 +62,8 @@ export function goodEditor(editedGood?: Good, onUpdate?: () => void) {
       .ge-edit-row        { display:flex; align-items:flex-start; justify-content:space-between; gap:6px; }
       .ge-edit-row > span { flex:1; min-width:0; }
       .ge-edit            { flex-shrink:0; }
-      .ge-dist            { flex:1; min-width:0; color:#555; font-size:.9em; font-family:var(--monospace); word-break:break-all; }
-      .ge-note            { color:#777; font-style:italic; font-size:.9em; }
+      .ge-dist            { flex:1; min-width:0; color:var(--dialog-muted); font-size:.9em; font-family:var(--monospace); word-break:break-all; }
+      .ge-note            { color:var(--dialog-muted); font-style:italic; font-size:.9em; }
       .ge-error           { color:#b20000; min-height:1.2em; }
       .ge-recipe-list     { display:flex; flex-direction:column; gap:.45em; }
       .ge-recipe          { border:1px solid #ccc; border-radius:3px; }

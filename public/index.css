@@ -2,6 +2,18 @@
   --monospace: Consolas, monospace;
   --serif: Georgia, serif;
   --sans-serif: Helvetica, Arial, sans-serif;
+  --dialog-text: #1f1a1d;
+  --dialog-muted: #5f555b;
+  --dialog-strong: #2b2026;
+  --dialog-control-bg: rgba(255, 255, 255, 0.92);
+  --dialog-control-text: #1f1a1d;
+  --dialog-control-border: rgba(60, 48, 54, 0.32);
+  --panel-text: #f8f4f6;
+  --panel-muted: #d8cfd5;
+  --panel-strong: #ffffff;
+  --panel-control-bg: rgba(255, 255, 255, 0.12);
+  --panel-control-text: #f8f4f6;
+  --panel-control-border: rgba(255, 255, 255, 0.32);
 }
 
 /* hide Google translate header */
@@ -352,6 +364,7 @@ text.drag {
 
 #dialogs {
   background-color: var(--bg-dialogs);
+  color: var(--dialog-text);
 }
 
 .draggable {
@@ -376,6 +389,112 @@ button.ui-button:disabled:hover {
 .ui-dialog,
 #optionsContainer {
   user-select: none;
+}
+
+.ui-dialog {
+  color: var(--dialog-text);
+}
+
+#options,
+#optionsContainer {
+  color: var(--panel-text);
+}
+
+.ui-widget.ui-widget-content,
+.ui-widget-content,
+.ui-dialog .ui-dialog-content,
+.ui-dialog .ui-dialog-buttonpane {
+  color: var(--dialog-text);
+}
+
+.ui-widget-content a {
+  color: var(--dialog-strong);
+}
+
+.ui-dialog input:not([type="color"]),
+.ui-dialog select,
+.ui-dialog textarea {
+  background-color: var(--dialog-control-bg);
+  border-color: var(--dialog-control-border);
+  color: var(--dialog-control-text);
+}
+
+#options input:not([type="color"]),
+#options select,
+#options textarea {
+  background-color: var(--panel-control-bg);
+  border-color: var(--panel-control-border);
+  color: var(--panel-control-text);
+}
+
+.ui-dialog .ui-dialog-content button,
+.ui-dialog .ui-dialog-buttonpane button {
+  background-color: var(--dialog-control-bg);
+  border-color: var(--dialog-control-border);
+  color: var(--dialog-control-text);
+}
+
+.ui-dialog input:read-only,
+.ui-dialog textarea:read-only {
+  color: var(--dialog-text);
+}
+
+#options input:read-only,
+#options textarea:read-only {
+  color: var(--panel-text);
+}
+
+.ui-dialog label,
+.ui-dialog output,
+.ui-dialog .tip {
+  color: var(--dialog-muted);
+}
+
+.export-progress {
+  margin-top: 0.55em;
+  padding: 0.45em 0.55em;
+  border: 1px solid var(--dialog-control-border);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--dialog-text);
+}
+
+.export-progress.hidden {
+  display: none;
+}
+
+.export-progress__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7em;
+  font-weight: bold;
+}
+
+.export-progress__track {
+  height: 0.55em;
+  margin-top: 0.35em;
+  overflow: hidden;
+  border: 1px solid var(--dialog-control-border);
+  background: rgba(31, 26, 29, 0.1);
+}
+
+.export-progress__bar {
+  width: 0;
+  height: 100%;
+  background: var(--header);
+  transition: width 0.18s ease;
+}
+
+.export-progress__detail {
+  min-height: 1.15em;
+  margin-top: 0.3em;
+  color: var(--dialog-muted);
+  font-size: 0.9em;
+}
+
+#options label,
+#options output {
+  color: var(--panel-muted);
 }
 
 #optionsTrigger {

@@ -6162,17 +6162,29 @@
         <div style="margin-bottom: 0.3em; font-weight: bold">Game export</div>
         <div>
           <button
+            id="exportGameMapFilesButton"
             onclick="window.lazy.exportMap().then(m => m.exportGameMapFiles())"
             data-tip="Download one compressed ZIP with renders, manifest, world data, and separate town files"
           >
             map images + data ZIP
           </button>
           <button
+            id="exportGameTopologyJsonButton"
             onclick="window.lazy.exportMap().then(m => m.exportGameTopologyJson())"
             data-tip="Download a compressed vibe-game data ZIP with manifest, world data, and separate town files"
           >
             game data ZIP
           </button>
+        </div>
+        <div id="vibeGameExportProgress" class="export-progress hidden" aria-live="polite">
+          <div class="export-progress__row">
+            <span id="vibeGameExportProgressLabel">Preparing export...</span>
+            <span id="vibeGameExportProgressPercent">0%</span>
+          </div>
+          <div class="export-progress__track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="vibeGameExportProgressBar" class="export-progress__bar"></div>
+          </div>
+          <div id="vibeGameExportProgressDetail" class="export-progress__detail"></div>
         </div>
         <p>Game export downloads compressed packages. Open manifest.json first; the voxel game can load town files on demand.</p>
         <div style="margin: 1em 0 0.3em; font-weight: bold">Advanced image export</div>
