@@ -664,7 +664,7 @@ async function generate(options) {
     applyGraphSize();
     if (!preserveOptions) randomizeOptions();
 
-    if (shouldRegenerateGrid(grid, precreatedSeed)) grid = precreatedGraph || generateGrid();
+    if (shouldRegenerateGrid(grid, precreatedSeed, graphWidth, graphHeight)) grid = precreatedGraph || generateGrid();
     else delete grid.cells.h;
     grid.cells.h = await HeightmapGenerator.generate(grid);
     pack = {}; // reset pack

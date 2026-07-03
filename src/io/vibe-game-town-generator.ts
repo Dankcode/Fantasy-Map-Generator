@@ -77,6 +77,9 @@ type BiomeType =
 type TownDensity = "VERY_SPARSE" | "SPARSE" | "MEDIUM" | "HIGH" | "EXTREME";
 type RoofStyle = "THATCHED" | "TILED" | "SLATE" | "METAL";
 type WallTexture = "TIMBER_FRAME" | "STONE" | "STUCCO" | "WOOD";
+type Bounds = { minX: number; maxX: number; minY: number; maxY: number };
+type MfcgLayers = Record<"roads" | "walls" | "buildings" | "water" | "greens" | "fields", MfcgVectorFeature[]>;
+type MatrixTransform = Bounds & { scale: number; margin: number; width: number; height: number };
 type RoomType =
   | "ENTRY"
   | "COMMON"
@@ -211,6 +214,7 @@ interface VibeGameTownBuilding {
   grid_rect: { x: number; y: number; width: number; height: number };
   coordinate_center: [number, number];
   footprint: [number, number][];
+  connected_buildings: VibeGameConnectedBuilding[];
   door: {
     grid: [number, number];
     coordinate: [number, number];
@@ -221,6 +225,13 @@ interface VibeGameTownBuilding {
   wall_texture: WallTexture;
   interior: VibeGameBuildingInterior;
   floors: VibeGameBuildingFloor[];
+}
+
+interface VibeGameConnectedBuilding {
+  building_id: string;
+  direction: Direction;
+  contact_tiles: [number, number][];
+  separated_by_road: false;
 }
 
 interface VibeGameBuildingInterior {
@@ -311,6 +322,7 @@ interface VibeGameBuildingMatrix {
   building_id: string;
   type: BuildingType;
   grid_rect: { x: number; y: number; width: number; height: number };
+  connected_buildings: VibeGameConnectedBuilding[];
   wall_height_voxels: number;
   floor_height_voxels: number;
   floors: VibeGameBuildingFloorMatrix[];
@@ -333,6 +345,7 @@ interface VibeGameBuildingFloorMatrix {
 
 interface VibeGameBuildingMatrixDoor {
   kind: "exterior" | "interior" | "stairs";
+  floor: number;
   grid: [number, number];
   local: [number, number];
   direction: Direction | "up" | "down" | null;
@@ -386,7 +399,6 @@ interface VibeGameVoxel {
   material: number;
   kind: VibeGameVoxelKind;
   solid: boolean;
-  blocks_movement: boolean;
   face?: Direction;
   building_id?: string;
   floor?: number;
@@ -444,6 +456,10 @@ export interface TownGeneratorUrlState {
 
 const WIDTH = 80;
 const HEIGHT = 60;
+const TOWN_BUILDING_PLOT_SCALE = 3;
+const MIN_BUILDING_CELLS = 9;
+const MAX_TOWN_DIM = 256;
+const MATRIX_MARGIN = 4;
 const TOWN_GENERATOR_DEFAULT_SIZE = 15;
 const TOWN_GENERATOR_DEFAULT_SEED = -1;
 const TOWN_GENERATOR_MIN_SIZE = 6;
@@ -755,7 +771,9 @@ export function createVibeGameTownLayout(options: VibeGameTownOptions): VibeGame
   ];
   const tiles = flattenTiles(town, origin, tileSize);
   const streets = getStreetTiles(town, origin, tileSize);
-  const buildings = town.buildings.map(building => getBuildingLayout(building, origin, tileSize, town.seed));
+  const buildings = addConnectedTownBuildings(
+    town.buildings.map(building => getBuildingLayout(building, origin, tileSize, town.seed))
+  );
   const walls = tiles.filter(tile => tile.type === "WALL");
   const farms = tiles.filter(tile => tile.type === "FARM");
   const doodads = getDoodads(town, origin, tileSize);
@@ -817,6 +835,24 @@ function applyFmgBurgFlags(town: TownMap, options: VibeGameTownOptions): void {
 
 function getMostProminentBuilding(town: TownMap): Building | undefined {
   return [...town.buildings].sort((a, b) => b.width * b.height - a.width * a.height)[0];
+}
+
+function scaleBuildingPlot(size: { w: number; h: number }): { w: number; h: number } {
+  return {
+    w: size.w * TOWN_BUILDING_PLOT_SCALE,
+    h: size.h * TOWN_BUILDING_PLOT_SCALE
+  };
+}
+
+function getRoadParcelPlot(
+  roadTile: { x: number; y: number },
+  dir: { x: number; y: number },
+  size: { w: number; h: number }
+): { x: number; y: number } {
+  if (dir.x === 1) return { x: roadTile.x + 1, y: roadTile.y - Math.floor(size.h / 2) };
+  if (dir.x === -1) return { x: roadTile.x - size.w, y: roadTile.y - Math.floor(size.h / 2) };
+  if (dir.y === 1) return { x: roadTile.x - Math.floor(size.w / 2), y: roadTile.y + 1 };
+  return { x: roadTile.x - Math.floor(size.w / 2), y: roadTile.y - size.h };
 }
 
 interface TownGeneratorOptions {
@@ -1163,54 +1199,83 @@ class TownGenerator {
 
   private placeBuildings(tiles: Tile[][], center: { x: number; y: number }): Building[] {
     const buildings: Building[] = [];
-    const roadTiles = this.getRoadTiles(tiles);
-    const densityNoiseOffset = this.rng.next() * 100;
-    const densityThreshold = this.getDensityThreshold();
-    shuffle(roadTiles, this.rng);
+    const roadTiles = this.getRoadTiles(tiles).sort((a, b) => {
+      const aScore = this.getParcelRoadScore(a, center);
+      const bScore = this.getParcelRoadScore(b, center);
+      return aScore - bScore;
+    });
+    const targetCount = this.getTargetBuildingCount(roadTiles.length);
 
     for (const roadTile of roadTiles) {
-      const districtValue = this.noise.noise(
-        roadTile.x * 0.1 + densityNoiseOffset,
-        roadTile.y * 0.1 + densityNoiseOffset
-      );
+      if (buildings.length >= targetCount) break;
       const dist = Math.sqrt((roadTile.x - center.x) ** 2 + (roadTile.y - center.y) ** 2);
-      const canSpawn =
-        this.options.density === "VERY_SPARSE"
-          ? this.rng.chance(0.05)
-          : 1 - districtValue > densityThreshold || dist < 10;
-      if (!canSpawn) continue;
+      const building = this.tryPlaceRoadParcelBuilding(tiles, roadTile, dist);
+      if (building) buildings.push(building);
+    }
 
-      const dirs = [
+    return buildings;
+  }
+
+  private getParcelRoadScore(roadTile: { x: number; y: number }, center: { x: number; y: number }): number {
+    const dist = Math.sqrt((roadTile.x - center.x) ** 2 + (roadTile.y - center.y) ** 2);
+    return dist + this.noise.noise(roadTile.x * 0.17, roadTile.y * 0.17) * 8;
+  }
+
+  private getTargetBuildingCount(roadCount: number): number {
+    const densityTarget: Record<TownDensity, number> = {
+      VERY_SPARSE: 7,
+      SPARSE: 12,
+      MEDIUM: 20,
+      HIGH: 30,
+      EXTREME: 42
+    };
+    return Math.min(densityTarget[this.options.density], Math.max(4, Math.floor(roadCount / 3)));
+  }
+
+  private tryPlaceRoadParcelBuilding(
+    tiles: Tile[][],
+    roadTile: { x: number; y: number },
+    dist: number
+  ): Building | null {
+    const directions = shuffle(
+      [
         { x: 0, y: 1 },
         { x: 0, y: -1 },
         { x: 1, y: 0 },
         { x: -1, y: 0 }
-      ];
-      for (const dir of dirs) {
-        const plotX = roadTile.x + dir.x;
-        const plotY = roadTile.y + dir.y;
-        const sizes =
-          dist < 15
-            ? [
-                { w: 3, h: 4 },
-                { w: 4, h: 3 },
-                { w: 3, h: 3 }
-              ]
-            : [];
-        sizes.push({ w: 2, h: 2 }, { w: 2, h: 3 }, { w: 3, h: 2 });
+      ],
+      this.rng
+    );
+    const sizes = this.getParcelBuildingSizes(dist);
 
-        for (const size of sizes) {
-          let x = plotX;
-          let y = plotY;
-          if (dir.x === -1) x = plotX - size.w + 1;
-          if (dir.y === -1) y = plotY - size.h + 1;
-          if (!this.canBuild(tiles, x, y, size.w, size.h)) continue;
-          buildings.push(this.createBuilding(tiles, x, y, size.w, size.h, roadTile, dist));
-          break;
-        }
+    for (const dir of directions) {
+      const adjacentX = roadTile.x + dir.x;
+      const adjacentY = roadTile.y + dir.y;
+      if (!inInnerBounds(adjacentX, adjacentY) || isRoad(tiles[adjacentX][adjacentY].type)) continue;
+
+      for (const size of sizes) {
+        const plot = getRoadParcelPlot(roadTile, dir, size);
+        if (!this.canBuild(tiles, plot.x, plot.y, size.w, size.h)) continue;
+        return this.createBuilding(tiles, plot.x, plot.y, size.w, size.h, roadTile, dist);
       }
     }
-    return buildings;
+
+    return null;
+  }
+
+  private getParcelBuildingSizes(dist: number): { w: number; h: number }[] {
+    const central = [
+      { w: 4, h: 4 },
+      { w: 4, h: 3 },
+      { w: 3, h: 4 }
+    ];
+    const standard = [
+      { w: 3, h: 3 },
+      { w: 2, h: 3 },
+      { w: 3, h: 2 },
+      { w: 2, h: 2 }
+    ];
+    return (dist < 16 ? [...central, ...standard] : standard).map(scaleBuildingPlot);
   }
 
   private getRoadTiles(tiles: Tile[][]): { x: number; y: number }[] {
@@ -1221,14 +1286,6 @@ class TownGenerator {
       }
     }
     return roadTiles;
-  }
-
-  private getDensityThreshold(): number {
-    if (this.options.density === "VERY_SPARSE") return 0.85;
-    if (this.options.density === "SPARSE") return 0.75;
-    if (this.options.density === "MEDIUM") return 0.65;
-    if (this.options.density === "HIGH") return 0.5;
-    return 0.3;
   }
 
   private canBuild(tiles: Tile[][], x: number, y: number, width: number, height: number): boolean {
@@ -1346,6 +1403,11 @@ class TownGenerator {
     height: number,
     roadTile: { x: number; y: number }
   ): { x: number; y: number } {
+    if (roadTile.x < x) return { x: 0, y: clamp(roadTile.y - y, 0, height - 1) };
+    if (roadTile.x >= x + width) return { x: width - 1, y: clamp(roadTile.y - y, 0, height - 1) };
+    if (roadTile.y < y) return { x: clamp(roadTile.x - x, 0, width - 1), y: 0 };
+    if (roadTile.y >= y + height) return { x: clamp(roadTile.x - x, 0, width - 1), y: height - 1 };
+
     let doorX = 0;
     let doorY = 0;
     let minDistance = Infinity;
@@ -1730,6 +1792,7 @@ function getBuildingLayout(
     roof_color: building.roofColor,
     roof_style: building.roofStyle,
     wall_texture: building.wallTexture,
+    connected_buildings: [],
     interior: {
       floor_count: floors.length,
       floor_height_voxels: 4,
@@ -2022,6 +2085,112 @@ function containsGrid(rect: { x: number; y: number; width: number; height: numbe
   return x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
 }
 
+function addConnectedTownBuildings(buildings: VibeGameTownBuilding[]): VibeGameTownBuilding[] {
+  return buildings.map(building => ({
+    ...building,
+    connected_buildings: getConnectedBuildingRefs(building, buildings, candidate => candidate.id)
+  }));
+}
+
+function addConnectedBuildingMatrices(
+  buildings: VibeGameBuildingMatrix[],
+  streetWidth?: number[][]
+): VibeGameBuildingMatrix[] {
+  return buildings.map(building => ({
+    ...building,
+    connected_buildings: getConnectedBuildingRefs(building, buildings, candidate => candidate.building_id, streetWidth)
+  }));
+}
+
+function getConnectedBuildingRefs<T extends { grid_rect: { x: number; y: number; width: number; height: number } }>(
+  building: T,
+  buildings: T[],
+  getId: (building: T) => string,
+  streetWidth?: number[][]
+): VibeGameConnectedBuilding[] {
+  const connections: VibeGameConnectedBuilding[] = [];
+  const buildingId = getId(building);
+
+  for (const candidate of buildings) {
+    const candidateId = getId(candidate);
+    if (candidateId === buildingId) continue;
+    const contact = getBuildingRectContact(building.grid_rect, candidate.grid_rect);
+    if (!contact) continue;
+    if (streetWidth && contact.contact_tiles.every(([x, y]) => streetWidth[y]?.[x] > 0)) continue;
+    connections.push({
+      building_id: candidateId,
+      direction: contact.direction,
+      contact_tiles: contact.contact_tiles,
+      separated_by_road: false
+    });
+  }
+
+  return connections.sort((a, b) => a.building_id.localeCompare(b.building_id));
+}
+
+function getBuildingRectContact(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number }
+): { direction: Direction; contact_tiles: [number, number][] } | null {
+  const aRight = a.x + a.width;
+  const bRight = b.x + b.width;
+  const aBottom = a.y + a.height;
+  const bBottom = b.y + b.height;
+
+  if (aRight === b.x || bRight === a.x) {
+    const y1 = Math.max(a.y, b.y);
+    const y2 = Math.min(aBottom, bBottom) - 1;
+    if (y1 > y2) return null;
+    const x = aRight === b.x ? aRight - 1 : a.x;
+    return {
+      direction: aRight === b.x ? "east" : "west",
+      contact_tiles: rangePoints(y1, y2, y => [x, y])
+    };
+  }
+
+  if (aBottom === b.y || bBottom === a.y) {
+    const x1 = Math.max(a.x, b.x);
+    const x2 = Math.min(aRight, bRight) - 1;
+    if (x1 > x2) return null;
+    const y = aBottom === b.y ? aBottom - 1 : a.y;
+    return {
+      direction: aBottom === b.y ? "south" : "north",
+      contact_tiles: rangePoints(x1, x2, x => [x, y])
+    };
+  }
+
+  const x1 = Math.max(a.x, b.x);
+  const x2 = Math.min(aRight, bRight) - 1;
+  const y1 = Math.max(a.y, b.y);
+  const y2 = Math.min(aBottom, bBottom) - 1;
+  if (x1 > x2 || y1 > y2) return null;
+
+  const aCenterX = a.x + a.width / 2;
+  const aCenterY = a.y + a.height / 2;
+  const bCenterX = b.x + b.width / 2;
+  const bCenterY = b.y + b.height / 2;
+  const direction =
+    Math.abs(bCenterX - aCenterX) >= Math.abs(bCenterY - aCenterY)
+      ? bCenterX >= aCenterX
+        ? "east"
+        : "west"
+      : bCenterY >= aCenterY
+        ? "south"
+        : "north";
+  const contact_tiles: [number, number][] = [];
+  for (let y = y1; y <= y2; y++) {
+    for (let x = x1; x <= x2; x++) contact_tiles.push([x, y]);
+  }
+
+  return { direction, contact_tiles };
+}
+
+function rangePoints(start: number, end: number, create: (value: number) => [number, number]): [number, number][] {
+  const points: [number, number][] = [];
+  for (let value = start; value <= end; value++) points.push(create(value));
+  return points;
+}
+
 function getRoomName(type: RoomType): string {
   return type
     .toLowerCase()
@@ -2107,21 +2276,25 @@ export function createVibeGameTownMatrixFromMfcgVector(
   vector: MfcgVectorData,
   options: MfcgMatrixOptions = {}
 ): VibeGameTownMatrix {
-  const width = options.width || WIDTH;
-  const height = options.height || HEIGHT;
   const origin = options.origin || [0, 0];
   const tileSize = options.tileSize || 1;
   const layers = collectMfcgLayers(vector);
   const bounds = getMfcgBounds(layers);
+  const buildingRings = layers.buildings.flatMap(feature => getPolygonRings(feature));
+  const transform = getMfcgMatrixTransform(bounds, buildingRings, options);
+  const { width, height } = transform;
+  const buildingMask = createRows(width, height, () => 0);
   const terrain = createRows(width, height, () => TERRAIN_CODES.GRASS);
   const solidHeight = createRows(width, height, () => 0);
   const clearance = createRows(width, height, () => CHARACTER_HEIGHT_VOXELS);
   const walkable = createRows(width, height, () => 1);
   const streetWidth = createRows(width, height, () => 0);
 
+  for (const ring of buildingRings) fillPolygonMatrix(ring, transform, (x, y) => (buildingMask[y][x] = 1));
+
   for (const feature of layers.water) {
     for (const ring of getPolygonRings(feature))
-      fillPolygonMatrix(ring, bounds, width, height, (x, y) => {
+      fillPolygonMatrix(ring, transform, (x, y) => {
         terrain[y][x] = TERRAIN_CODES.WATER_SHALLOW;
         solidHeight[y][x] = CHARACTER_HEIGHT_VOXELS;
         clearance[y][x] = 0;
@@ -2132,34 +2305,33 @@ export function createVibeGameTownMatrixFromMfcgVector(
   for (const feature of [...layers.greens, ...layers.fields]) {
     const code = layers.fields.includes(feature) ? TERRAIN_CODES.FARM : TERRAIN_CODES.GRASS;
     for (const ring of getPolygonRings(feature))
-      fillPolygonMatrix(ring, bounds, width, height, (x, y) => {
+      fillPolygonMatrix(ring, transform, (x, y) => {
         terrain[y][x] = code;
-      });
-  }
-
-  for (const feature of layers.buildings) {
-    for (const ring of getPolygonRings(feature))
-      fillPolygonMatrix(ring, bounds, width, height, (x, y) => {
-        terrain[y][x] = TERRAIN_CODES.BUILDING_FLOOR;
-        walkable[y][x] = 0;
       });
   }
 
   for (const feature of layers.roads) {
     for (const line of getLineStrings(feature))
-      rasterizeLineMatrix(line, bounds, width, height, 1, (x, y) => {
-        terrain[y][x] = TERRAIN_CODES.ROAD_MAIN;
-        solidHeight[y][x] = 0;
-        clearance[y][x] = CHARACTER_HEIGHT_VOXELS;
-        walkable[y][x] = 1;
-        streetWidth[y][x] = Math.max(streetWidth[y][x], 3);
-      });
+      rasterizeLineMatrix(line, transform, 1, (x, y) =>
+        setRoadMatrixCell(x, y, buildingMask, terrain, solidHeight, clearance, walkable, streetWidth)
+      );
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!buildingMask[y][x]) continue;
+      terrain[y][x] = TERRAIN_CODES.BUILDING_FLOOR;
+      solidHeight[y][x] = 0;
+      clearance[y][x] = CHARACTER_HEIGHT_VOXELS;
+      walkable[y][x] = 0;
+      streetWidth[y][x] = 0;
+    }
   }
 
   const wallPoints: [number, number][] = [];
   for (const feature of layers.walls) {
     for (const line of getLineStrings(feature))
-      rasterizeLineMatrix(line, bounds, width, height, 0, (x, y) => {
+      rasterizeLineMatrix(line, transform, 0, (x, y) => {
         terrain[y][x] = TERRAIN_CODES.WALL;
         solidHeight[y][x] = CITY_WALL_HEIGHT_VOXELS;
         clearance[y][x] = 0;
@@ -2183,7 +2355,6 @@ export function createVibeGameTownMatrixFromMfcgVector(
       streetWidth[y][x] = Math.max(streetWidth[y][x], 1);
     }
   }
-
   return withVoxelTown({
     schema: "vibe-game-town-matrix",
     schema_version: 1,
@@ -2215,8 +2386,55 @@ export function createVibeGameTownMatrixFromMfcgVector(
       walkway,
       gates
     },
-    interiors: createMfcgBuildingInteriors(layers.buildings, bounds, width, height)
+    interiors: addConnectedBuildingMatrices(createMfcgBuildingInteriors(buildingRings, transform), streetWidth)
   });
+}
+
+function setRoadMatrixCell(
+  x: number,
+  y: number,
+  buildingMask: number[][],
+  terrain: number[][],
+  solidHeight: number[][],
+  clearance: number[][],
+  walkable: number[][],
+  streetWidth: number[][]
+): void {
+  if (buildingMask[y][x]) {
+    setRoadShoulderMatrixCell(x, y, buildingMask, terrain, solidHeight, clearance, walkable, streetWidth);
+    return;
+  }
+
+  terrain[y][x] = TERRAIN_CODES.ROAD_MAIN;
+  solidHeight[y][x] = 0;
+  clearance[y][x] = CHARACTER_HEIGHT_VOXELS;
+  walkable[y][x] = 1;
+  streetWidth[y][x] = Math.max(streetWidth[y][x], 3);
+}
+
+function setRoadShoulderMatrixCell(
+  x: number,
+  y: number,
+  buildingMask: number[][],
+  terrain: number[][],
+  solidHeight: number[][],
+  clearance: number[][],
+  walkable: number[][],
+  streetWidth: number[][]
+): void {
+  for (const [dx, dy] of [
+    [0, -1],
+    [1, 0],
+    [0, 1],
+    [-1, 0]
+  ] as [number, number][]) {
+    const nx = x + dx;
+    const ny = y + dy;
+    if (ny < 0 || ny >= buildingMask.length || nx < 0 || nx >= buildingMask[ny].length || buildingMask[ny][nx])
+      continue;
+    setRoadMatrixCell(nx, ny, buildingMask, terrain, solidHeight, clearance, walkable, streetWidth);
+    return;
+  }
 }
 
 function withVoxelTown(matrix: VibeGameTownMatrixBase): VibeGameTownMatrix {
@@ -2242,7 +2460,6 @@ export function createVibeGameVoxelTown(matrix: VibeGameTownMatrixBase | VibeGam
       material: VOXEL_MATERIAL_CODES[kind],
       kind,
       solid,
-      blocks_movement: solid,
       ...extra
     });
   };
@@ -2258,7 +2475,7 @@ export function createVibeGameVoxelTown(matrix: VibeGameTownMatrixBase | VibeGam
         continue;
       }
       if (terrain === "WATER_DEEP" || terrain === "WATER_SHALLOW" || terrain === "LAVA" || terrain === "ICE") {
-        addVoxel(x, y, 0, "water", false, { blocks_movement: true });
+        addVoxel(x, y, 0, "water", false);
         continue;
       }
       if (terrain === "ROAD_MAIN" || terrain === "ROAD_DIRT" || terrain === "BRIDGE" || terrain === "DOCK") {
@@ -2417,7 +2634,13 @@ function getCityWallMatrixData(tiles: Tile[][]): VibeGameTownMatrix["city_wall"]
   const walkway: [number, number][] = [];
   const gates: [number, number][] = [];
   if (!wall.length) {
-    return { height_voxels: CITY_WALL_HEIGHT_VOXELS, walkway_width_blocks: 1, wall, walkway, gates };
+    return {
+      height_voxels: CITY_WALL_HEIGHT_VOXELS,
+      walkway_width_blocks: 1,
+      wall,
+      walkway,
+      gates
+    };
   }
 
   const bounds = wall.reduce(
@@ -2461,8 +2684,8 @@ function getCityWallMatrixData(tiles: Tile[][]): VibeGameTownMatrix["city_wall"]
   };
 }
 
-function collectMfcgLayers(vector: MfcgVectorData): Record<string, MfcgVectorFeature[]> {
-  const layers: Record<string, MfcgVectorFeature[]> = {
+function collectMfcgLayers(vector: MfcgVectorData): MfcgLayers {
+  const layers: MfcgLayers = {
     roads: [],
     walls: [],
     buildings: [],
@@ -2517,12 +2740,7 @@ function getMfcgGeometry(feature: MfcgVectorFeature): MfcgVectorGeometry[] {
   return feature.geometries || [];
 }
 
-function getMfcgBounds(layers: Record<string, MfcgVectorFeature[]>): {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
-} {
+function getMfcgBounds(layers: MfcgLayers): Bounds {
   const points = Object.values(layers).flatMap(features =>
     features.flatMap(feature => getGeometryPoints(getMfcgGeometry(feature)))
   );
@@ -2593,20 +2811,85 @@ function getGeometryLineStrings(geometry: MfcgVectorGeometry): [number, number][
   return [];
 }
 
+function getMfcgMatrixTransform(
+  bounds: Bounds,
+  buildingRings: [number, number][][],
+  options: MfcgMatrixOptions
+): MatrixTransform {
+  let scale = computeUniformTownScale(bounds, buildingRings);
+  const requestedWidth = options.width ? Math.max(1, options.width) : null;
+  const requestedHeight = options.height ? Math.max(1, options.height) : null;
+
+  if (requestedWidth || requestedHeight) {
+    const dx = getBoundsWidth(bounds);
+    const dy = getBoundsHeight(bounds);
+    const maxScaleX = requestedWidth ? Math.max(1, requestedWidth - MATRIX_MARGIN - 1) / dx : Infinity;
+    const maxScaleY = requestedHeight ? Math.max(1, requestedHeight - MATRIX_MARGIN - 1) / dy : Infinity;
+    scale = Math.min(scale, maxScaleX, maxScaleY);
+  }
+
+  const dimensions = deriveMatrixDimensions(bounds, scale);
+  return {
+    ...bounds,
+    scale,
+    margin: dimensions.margin,
+    width: requestedWidth || dimensions.width,
+    height: requestedHeight || dimensions.height
+  };
+}
+
+function computeUniformTownScale(bounds: Bounds, buildingRings: [number, number][][]): number {
+  const areas = buildingRings.map(ring => Math.abs(getRingArea(ring))).filter(area => area > 0);
+  const medianArea = getMedian(areas) || MIN_BUILDING_CELLS;
+  const buildingScale = Math.sqrt(MIN_BUILDING_CELLS / medianArea);
+  const maxBounds = Math.max(getBoundsWidth(bounds), getBoundsHeight(bounds));
+  const maxTownScale = (MAX_TOWN_DIM - 2 * MATRIX_MARGIN) / maxBounds;
+  return Math.max(0.01, Math.min(buildingScale, maxTownScale));
+}
+
+function deriveMatrixDimensions(bounds: Bounds, scale: number): { width: number; height: number; margin: number } {
+  return {
+    width: Math.max(1, Math.ceil(getBoundsWidth(bounds) * scale) + 2 * MATRIX_MARGIN),
+    height: Math.max(1, Math.ceil(getBoundsHeight(bounds) * scale) + 2 * MATRIX_MARGIN),
+    margin: MATRIX_MARGIN
+  };
+}
+
+function getRingArea(ring: [number, number][]): number {
+  let area = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    area += ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
+  }
+  return area / 2;
+}
+
+function getMedian(values: number[]): number {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function getBoundsWidth(bounds: Bounds): number {
+  return Math.max(1, bounds.maxX - bounds.minX);
+}
+
+function getBoundsHeight(bounds: Bounds): number {
+  return Math.max(1, bounds.maxY - bounds.minY);
+}
+
 function fillPolygonMatrix(
   ring: [number, number][],
-  bounds: { minX: number; maxX: number; minY: number; maxY: number },
-  width: number,
-  height: number,
+  transform: MatrixTransform,
   apply: (x: number, y: number) => void
 ): void {
-  const matrixRing = ring.map(point => vectorPointToMatrix(point, bounds, width, height));
+  const matrixRing = ring.map(point => vectorPointToMatrixUniform(point, transform));
   const xs = matrixRing.map(([x]) => x);
   const ys = matrixRing.map(([, y]) => y);
   const minX = Math.max(0, Math.min(...xs));
-  const maxX = Math.min(width - 1, Math.max(...xs));
+  const maxX = Math.min(transform.width - 1, Math.max(...xs));
   const minY = Math.max(0, Math.min(...ys));
-  const maxY = Math.min(height - 1, Math.max(...ys));
+  const maxY = Math.min(transform.height - 1, Math.max(...ys));
 
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
@@ -2617,15 +2900,13 @@ function fillPolygonMatrix(
 
 function rasterizeLineMatrix(
   line: [number, number][],
-  bounds: { minX: number; maxX: number; minY: number; maxY: number },
-  width: number,
-  height: number,
+  transform: MatrixTransform,
   radius: number,
   apply: (x: number, y: number) => void
 ): void {
   for (let i = 1; i < line.length; i++) {
-    const [x0, y0] = vectorPointToMatrix(line[i - 1], bounds, width, height);
-    const [x1, y1] = vectorPointToMatrix(line[i], bounds, width, height);
+    const [x0, y0] = vectorPointToMatrixUniform(line[i - 1], transform);
+    const [x1, y1] = vectorPointToMatrixUniform(line[i], transform);
     const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
     for (let step = 0; step <= steps; step++) {
       const x = Math.round(x0 + ((x1 - x0) * step) / steps);
@@ -2634,24 +2915,17 @@ function rasterizeLineMatrix(
         for (let dy = -radius; dy <= radius; dy++) {
           const nx = x + dx;
           const ny = y + dy;
-          if (nx >= 0 && nx < width && ny >= 0 && ny < height) apply(nx, ny);
+          if (nx >= 0 && nx < transform.width && ny >= 0 && ny < transform.height) apply(nx, ny);
         }
       }
     }
   }
 }
 
-function vectorPointToMatrix(
-  [x, y]: [number, number],
-  bounds: { minX: number; maxX: number; minY: number; maxY: number },
-  width: number,
-  height: number
-): [number, number] {
-  const dx = bounds.maxX - bounds.minX || 1;
-  const dy = bounds.maxY - bounds.minY || 1;
+function vectorPointToMatrixUniform([x, y]: [number, number], transform: MatrixTransform): [number, number] {
   return [
-    Math.max(0, Math.min(width - 1, Math.round(((x - bounds.minX) / dx) * (width - 1)))),
-    Math.max(0, Math.min(height - 1, Math.round(((y - bounds.minY) / dy) * (height - 1))))
+    clamp(Math.round((x - transform.minX) * transform.scale) + transform.margin, 0, transform.width - 1),
+    clamp(Math.round((y - transform.minY) * transform.scale) + transform.margin, 0, transform.height - 1)
   ];
 }
 
@@ -2701,27 +2975,25 @@ function getInnerWallWalkway(wall: [number, number][], walkable: number[][]): [n
 }
 
 function createMfcgBuildingInteriors(
-  buildings: MfcgVectorFeature[],
-  bounds: { minX: number; maxX: number; minY: number; maxY: number },
-  width: number,
-  height: number
+  rings: [number, number][][],
+  transform: MatrixTransform
 ): VibeGameBuildingMatrix[] {
-  return buildings
-    .flatMap(feature => getPolygonRings(feature))
-    .map((ring, index) => createMfcgBuildingInterior(ring, index, bounds, width, height))
+  return rings
+    .map((ring, index) => createMfcgBuildingInterior(ring, index, transform))
     .filter((building): building is VibeGameBuildingMatrix => Boolean(building));
 }
 
 function createMfcgBuildingInterior(
   ring: [number, number][],
   index: number,
-  bounds: { minX: number; maxX: number; minY: number; maxY: number },
-  matrixWidth: number,
-  matrixHeight: number
+  transform: MatrixTransform
 ): VibeGameBuildingMatrix | null {
-  const matrixRing = ring.map(point => vectorPointToMatrix(point, bounds, matrixWidth, matrixHeight));
-  const xs = matrixRing.map(([x]) => x);
-  const ys = matrixRing.map(([, y]) => y);
+  const footprint: [number, number][] = [];
+  fillPolygonMatrix(ring, transform, (x, y) => footprint.push([x, y]));
+  if (!footprint.length) return null;
+
+  const xs = footprint.map(([x]) => x);
+  const ys = footprint.map(([, y]) => y);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
@@ -2743,6 +3015,7 @@ function createMfcgBuildingInterior(
     building_id: `mfcg_building_${index + 1}`,
     type: "HOUSE_SMALL",
     grid_rect: { x: minX, y: minY, width, height },
+    connected_buildings: [],
     wall_height_voxels: 3,
     floor_height_voxels: 4,
     floors: [
@@ -2760,6 +3033,7 @@ function createMfcgBuildingInterior(
         doors: [
           {
             kind: "exterior",
+            floor: 0,
             grid: [minX + doorLocal[0], minY + doorLocal[1]],
             local: doorLocal,
             direction: "south"
@@ -2817,6 +3091,7 @@ function createBuildingMatrix(building: VibeGameTownBuilding): VibeGameBuildingM
     building_id: building.id,
     type: building.type,
     grid_rect: building.grid_rect,
+    connected_buildings: building.connected_buildings,
     wall_height_voxels: building.interior.wall_height_voxels,
     floor_height_voxels: building.interior.floor_height_voxels,
     floors: building.floors.map(floor => createBuildingFloorMatrix(building, floor))
@@ -2848,11 +3123,13 @@ function createBuildingFloorMatrix(
 
   addBuildingBoundaryWalls(room, wallNorth, wallEast, wallSouth, wallWest);
   addRoomPartitionWalls(room, wallNorth, wallEast, wallSouth, wallWest);
-  const doors = floor.rooms.flatMap(buildingRoom =>
-    buildingRoom.doors.map(door =>
-      getBuildingMatrixDoor(building, door, room, wallNorth, wallEast, wallSouth, wallWest)
+  const doors = floor.rooms
+    .flatMap(buildingRoom =>
+      buildingRoom.doors.map(door =>
+        getBuildingMatrixDoor(building, door, floor.level, room, wallNorth, wallEast, wallSouth, wallWest)
+      )
     )
-  );
+    .filter(door => door.kind !== "exterior" || door.floor === 0);
 
   if (floor.stairs) {
     const [sx, sy] = toLocal(floor.stairs.grid, building.grid_rect);
@@ -2922,6 +3199,7 @@ function addRoomPartitionWalls(
 function getBuildingMatrixDoor(
   building: VibeGameTownBuilding,
   door: VibeGameBuildingDoor,
+  floor: number,
   room: number[][],
   wallNorth: number[][],
   wallEast: number[][],
@@ -2929,9 +3207,11 @@ function getBuildingMatrixDoor(
   wallWest: number[][]
 ): VibeGameBuildingMatrixDoor {
   const local = toLocal(door.grid, building.grid_rect);
-  const direction = openDoorInWalls(local, room, wallNorth, wallEast, wallSouth, wallWest);
+  const direction =
+    door.kind === "stairs" ? null : openDoorInWalls(local, room, wallNorth, wallEast, wallSouth, wallWest);
   return {
     kind: door.kind,
+    floor,
     grid: door.grid,
     local,
     direction: door.kind === "stairs" ? "up" : direction,

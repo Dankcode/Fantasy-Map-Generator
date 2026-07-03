@@ -24,7 +24,7 @@ function handleKeyup(event) {
   const altShift = altKey && (shiftKey || key === "Shift") && !ctrl;
 
   if (code === "F1") showInfo();
-  else if (code === "F2") regeneratePrompt();
+  else if (code === "F2") regenerateMap({ seed: optionsSeed.value || seed, preserveOptions: true });
   else if (code === "F6") window.lazy.save().then(m => m.saveMap("storage"));
   else if (code === "F9") window.lazy.load().then(m => m.quickLoad());
   else if (code === "Tab") toggleOptions(event);

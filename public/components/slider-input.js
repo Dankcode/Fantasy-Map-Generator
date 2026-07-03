@@ -28,11 +28,10 @@
       const range = this.querySelector("input[type=range]");
       const number = this.querySelector("input[type=number]");
 
-      range.value = number.value = this.value || this.getAttribute("value") || 50;
-      this.value = range.value;
       range.min = number.min = this.getAttribute("min") || 0;
       range.max = number.max = this.getAttribute("max") || 100;
       range.step = number.step = this.getAttribute("step") || 1;
+      this.value = this.getAttribute("value") ?? (Number(range.min) + Number(range.max)) / 2;
 
       range.addEventListener("input", this.handleEvent.bind(this));
       number.addEventListener("input", this.handleEvent.bind(this));
@@ -41,9 +40,8 @@
     }
 
     handleEvent(e) {
-      const value = e.target.value;
-      const isNaN = Number.isNaN(Number(value));
-      if (isNaN || value === "") return e.stopPropagation();
+      const value = this.clampValue(e.target.value);
+      if (value === null) return e.stopPropagation();
 
       const range = this.querySelector("input[type=range]");
       const number = this.querySelector("input[type=number]");
@@ -61,8 +59,10 @@
     set value(value) {
       const range = this.querySelector("input[type=range]");
       const number = this.querySelector("input[type=number]");
-      range.value = number.value = value;
-      this.setAttribute("value", value);
+      const clamped = this.clampValue(value);
+      if (clamped === null) return;
+      range.value = number.value = clamped;
+      this.setAttribute("value", clamped);
     }
 
     get value() {
@@ -75,6 +75,17 @@
       const number = this.querySelector("input[type=number]");
       if (!number) return Number(this.getAttribute("value"));
       return number.valueAsNumber;
+    }
+
+    clampValue(value) {
+      if (value === "") return null;
+      const numeric = Number(value);
+      if (Number.isNaN(numeric)) return null;
+
+      const range = this.querySelector("input[type=range]");
+      const min = Number(range.min || 0);
+      const max = Number(range.max || 100);
+      return String(Math.min(max, Math.max(min, numeric)));
     }
   }
 

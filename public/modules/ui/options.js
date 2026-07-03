@@ -39,7 +39,7 @@ function toggleOptions(event) {
   else hideOptions(event);
 }
 
-// Toggle "New Map!" pane on hover
+// Toggle update pane on hover
 optionsTrigger.addEventListener("mouseenter", function () {
   if (optionsTrigger.classList.contains("glow")) return;
   if (ensureEl("options").style.display === "none") regenerate.style.display = "block";
@@ -761,8 +761,7 @@ async function openTemplateSelectionDialog() {
 // Sticked menu Options listeners
 ensureEl("sticked").addEventListener("click", function (event) {
   const id = event.target.id;
-  if (id === "updateMapButton") regeneratePrompt({ seed: optionsSeed.value || seed, preserveOptions: true });
-  else if (id === "newMapButton") regeneratePrompt();
+  if (id === "updateMapButton") regenerateMap({ seed: optionsSeed.value || seed, preserveOptions: true });
   else if (id === "saveButton") showSavePane();
   else if (id === "exportButton") showExportPane();
   else if (id === "loadButton") showLoadPane();
