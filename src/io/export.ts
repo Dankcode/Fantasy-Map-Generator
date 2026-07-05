@@ -21,6 +21,10 @@ interface VibeGameMapDataOptions {
 
 // project canvas coordinates to geographic [lon, lat], rounded to 4 decimals
 const toGeoCoordinates = (x: number, y: number) => getCoordinates(x, y, mapCoordinates, graphWidth, graphHeight, 4);
+const MAP_DATA_FILE_NAME = "map-data";
+const MAP_DATA_JSON_FILE_NAME = `${MAP_DATA_FILE_NAME}.json`;
+const MAP_DATA_ZIP_FILE_NAME = `${MAP_DATA_FILE_NAME}.zip`;
+const MAP_DATA_PACKAGE_ZIP_FILE_NAME = `${MAP_DATA_FILE_NAME}-package.zip`;
 
 export interface GetMapURLOptions {
   debug?: boolean;
@@ -129,7 +133,7 @@ export async function exportGameTopologyJson(): Promise<void> {
     await waitForUiPaint();
     await loadScript("libs/jszip.min.js");
     const zip = new window.JSZip();
-    const baseName = getFileName("vibe-game-map");
+    const archiveName = MAP_DATA_ZIP_FILE_NAME;
 
     progress({ percent: 18, label: "Collecting world and town data", detail: "Generating burg town packages" });
     await waitForUiPaint();
@@ -137,10 +141,10 @@ export async function exportGameTopologyJson(): Promise<void> {
 
     progress({ percent: 62, label: "Compressing game data", detail: "Starting ZIP compression" });
     const archive = await generateZipBlob(zip, progress, 62, 35);
-    progress({ percent: 98, label: "Starting download", detail: `${baseName}-data.zip` });
-    downloadBlob(archive, `${baseName}-data.zip`);
-    progress({ percent: 100, label: "Download ready", detail: `${baseName}-data.zip` });
-    tip(`${baseName}-data.zip is saved. It contains compressed vibe-game data`, true, "success", 7000);
+    progress({ percent: 98, label: "Starting download", detail: archiveName });
+    downloadBlob(archive, archiveName);
+    progress({ percent: 100, label: "Download ready", detail: archiveName });
+    tip(`${archiveName} is saved. It contains compressed vibe-game data`, true, "success", 7000);
   } catch (error) {
     ERROR && console.error(error);
     progress({
@@ -168,7 +172,7 @@ export async function exportGameMapFiles(): Promise<void> {
     await waitForUiPaint();
     await loadScript("libs/jszip.min.js");
     const zip = new window.JSZip();
-    const baseName = getFileName("vibe-game-map");
+    const baseName = MAP_DATA_FILE_NAME;
 
     progress({ percent: 12, label: "Rendering map images", detail: "Creating SVG and PNG renders" });
     await waitForUiPaint();
@@ -185,10 +189,15 @@ export async function exportGameMapFiles(): Promise<void> {
 
     progress({ percent: 68, label: "Compressing package", detail: "Starting ZIP compression" });
     const archive = await generateZipBlob(zip, progress, 68, 29);
-    progress({ percent: 98, label: "Starting download", detail: `${baseName}.zip` });
-    downloadBlob(archive, `${baseName}.zip`);
-    progress({ percent: 100, label: "Download ready", detail: `${baseName}.zip` });
-    tip(`${baseName}.zip is saved. It contains images and compressed vibe-game data`, true, "success", 7000);
+    progress({ percent: 98, label: "Starting download", detail: MAP_DATA_PACKAGE_ZIP_FILE_NAME });
+    downloadBlob(archive, MAP_DATA_PACKAGE_ZIP_FILE_NAME);
+    progress({ percent: 100, label: "Download ready", detail: MAP_DATA_PACKAGE_ZIP_FILE_NAME });
+    tip(
+      `${MAP_DATA_PACKAGE_ZIP_FILE_NAME} is saved. It contains images and compressed vibe-game data`,
+      true,
+      "success",
+      7000
+    );
   } catch (error) {
     ERROR && console.error(error);
     progress({
@@ -312,7 +321,7 @@ function addVibeGameDataToZip(
     detail: `${townFiles.length} town files prepared`
   });
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
-  zip.file("world.json", JSON.stringify(world));
+  zip.file(MAP_DATA_JSON_FILE_NAME, JSON.stringify(world));
 
   for (const [index, townFile] of townFiles.entries()) {
     if (index === 0 || index === townFiles.length - 1 || index % 10 === 0) {
@@ -393,7 +402,7 @@ function createVibeGameManifest(
     map_name: world.metadata.map_name,
     seed: world.metadata.seed,
     files: {
-      world: "world.json",
+      world: MAP_DATA_JSON_FILE_NAME,
       image: pngFileName || null,
       towns_directory: "towns/",
       towns: townFiles.map(file => file.path)
@@ -420,7 +429,7 @@ function createVibeGameManifest(
       building_rooms: townCounts.building_rooms
     },
     loading: {
-      entrypoint: "Read manifest.json, then world.json. Load towns/*.json lazily by burg.town_file.",
+      entrypoint: `Read manifest.json, then ${MAP_DATA_JSON_FILE_NAME}. Load towns/*.json lazily by burg.town_file.`,
       coordinate_space: "fmg-svg-pixels",
       compression: "zip-deflate"
     }
@@ -1183,7 +1192,7 @@ export function saveGeoJsonCells(): void {
     json.features.push(feature);
   });
 
-  const fileName = `${getFileName("Cells")}.geojson`;
+  const fileName = `${MAP_DATA_FILE_NAME}-cells.geojson`;
   downloadFile(JSON.stringify(json), fileName, "application/json");
 }
 
@@ -1200,7 +1209,7 @@ export function saveGeoJsonRoutes(): void {
   });
   const json = { type: "FeatureCollection", features };
 
-  const fileName = `${getFileName("Routes")}.geojson`;
+  const fileName = `${MAP_DATA_FILE_NAME}-routes.geojson`;
   downloadFile(JSON.stringify(json), fileName, "application/json");
 }
 
@@ -1219,7 +1228,7 @@ export function saveGeoJsonRivers(): void {
   );
   const json = { type: "FeatureCollection", features };
 
-  const fileName = `${getFileName("Rivers")}.geojson`;
+  const fileName = `${MAP_DATA_FILE_NAME}-rivers.geojson`;
   downloadFile(JSON.stringify(json), fileName, "application/json");
 }
 
@@ -1238,7 +1247,7 @@ export function saveGeoJsonMarkers(): void {
 
   const json = { type: "FeatureCollection", features };
 
-  const fileName = `${getFileName("Markers")}.geojson`;
+  const fileName = `${MAP_DATA_FILE_NAME}-markers.geojson`;
   downloadFile(JSON.stringify(json), fileName, "application/json");
 }
 
@@ -1356,7 +1365,7 @@ export function saveGeoJsonZones(): void {
     }
   });
 
-  const fileName = `${getFileName("Zones")}.geojson`;
+  const fileName = `${MAP_DATA_FILE_NAME}-zones.geojson`;
   downloadFile(JSON.stringify(json), fileName, "application/json");
 }
 

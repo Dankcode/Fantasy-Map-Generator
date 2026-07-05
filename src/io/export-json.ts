@@ -19,12 +19,17 @@ export function exportToJson(type: ExportJsonType): void {
   const blob = new Blob([mapData], { type: "application/json" });
   const URL = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.download = `${getFileName(type)}.json`;
+  link.download = `${getMapDataJsonFileName(type)}.json`;
   link.href = URL;
   link.click();
   tip(`${link.download} is saved. Open "Downloads" screen (CTRL + J) to check`, true, "success", 7000);
   window.URL.revokeObjectURL(URL);
   TIME && console.timeEnd("exportToJson");
+}
+
+function getMapDataJsonFileName(type: ExportJsonType): string {
+  const suffix = type.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
+  return `map-data-${suffix}`;
 }
 
 function getFullDataJson(): string {
